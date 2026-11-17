@@ -10,15 +10,12 @@
     <div class="ide-container">
         <!-- Sidebar File Explorer -->
         <div class="sidebar">
-            <div class="sidebar-header">Repository Files</div>
+            <div class="sidebar-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <span>Workspace Files</span>
+                <button onclick="openFolder()" style="background: var(--accent-blue); color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer;">Open Folder</button>
+            </div>
             <ul class="file-tree" id="file-tree">
-                <li onclick="selectFile('core/graph/box.py')">📁 core/graph/box.py</li>
-                <li onclick="selectFile('core/graph/tether.py')">📁 core/graph/tether.py</li>
-                <li onclick="selectFile('core/graph/traverser.py')">📁 core/graph/traverser.py</li>
-                <li onclick="selectFile('core/runtime/host_orchestrator.py')">📁 core/runtime/host_orchestrator.py</li>
-                <li onclick="selectFile('core/runtime/wasm_bridge.cpp')">📁 core/runtime/wasm_bridge.cpp</li>
-                <li onclick="selectFile('instrumentation/graph_validator.py')">📁 instrumentation/graph_validator.py</li>
-                <li onclick="selectFile('instrumentation/log_inspector.py')">📁 instrumentation/log_inspector.py</li>
+                <li style="color: var(--text-muted); font-style: italic; padding: 12px;">No folder loaded. Click "Open Folder" to mount workspace.</li>
             </ul>
         </div>
 
@@ -27,16 +24,8 @@
             <div class="panel-header">Active Insertions & Diff Review</div>
             <div class="editor-workspace">
                 <div class="diff-box">
-                    <div class="diff-header" id="diff-file-title">core/runtime/host_orchestrator.py (Pending Insertions)</div>
-                    <div class="diff-content" id="diff-view">
- class HostOrchestrator:
-     def __init__(self, threshold=0.4):
-         self.boxes = {}
-         self.tethers = []
-<span class="insertion">+        # Wasm zero-copy memory bridge binding initialized</span>
-<span class="insertion">+        self.wasm_active = True</span>
-     def execute_intent_loop(self, seed_box_ids):
-                    </div>
+                    <div class="diff-header" id="diff-file-title">Select a file from your workspace</div>
+                    <div class="diff-content" id="diff-view">// File content will appear here upon selection.</div>
                 </div>
                 <div style="display: flex; justify-content: flex-end; gap: 10px;">
                     <button class="btn-approve" onclick="approveAndSave()">Approve & Save Changes</button>
@@ -48,7 +37,7 @@
         <div class="chat-panel">
             <div class="panel-header">Goal & Conceptual Linker Chat</div>
             <div class="chat-messages" id="chat-messages">
-                <div class="message agent">System online. Conceptual graph and Wasm Android sandbox ready. Establish your goal.</div>
+                <div class="message agent">System online. Open a local project folder to begin neural graph indexing and Wasm validation.</div>
             </div>
             <div class="chat-input-area">
                 <input type="text" id="user-input" placeholder="Enter objective or fix..." onkeypress="handleKey(event)">
@@ -58,8 +47,8 @@
 
         <!-- Status Bar -->
         <div class="statusbar">
-            <span>Status: Connected to Wasm Sandbox (Deterministic)</span>
-            <span>Graph Threshold (tau): 0.4 | Active Tethers: Synced</span>
+            <span>Status: Ready for Local Workspace</span>
+            <span>Graph Threshold (tau): 0.4 | Lexical Engine: Active</span>
         </div>
     </div>
 
