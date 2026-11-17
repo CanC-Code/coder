@@ -8,7 +8,7 @@ let chatHistory = [];
 function updateStatusBar() {
     const statusRight = document.getElementById('status-metrics');
     if (statusRight) {
-        statusRight.textContent = `Boxes: ${engine.boxes.size} | Tethers: ${engine.tethers.length} | Alignment Findings: ${engine.auditFindings.length} | tau: ${engine.tau}`;
+        statusRight.textContent = `Boxes: ${engine.boxes.size} | .so Targets: ${engine.androidModel.nativeTargets.length} | JNI: ${engine.androidModel.javaNativeMethods.length} | Findings: ${engine.auditFindings.length}`;
     }
 }
 
@@ -59,7 +59,7 @@ async function handleFolderSelect(event) {
     }
 
     renderTree(root, fileTreeEl, "");
-    appendAgentMessage(`Mounted workspace with <strong>${files.length}</strong> files. Running runtime call-graph extraction, Android ARM64 alignment audit, and BM25 indexing...`);
+    appendAgentMessage(`Mounted workspace with <strong>${files.length}</strong> files. Tracing AndroidManifest, Gradle/CMake APK targets, JNI bindings, and runtime call paths...`);
 
     await ingestFilesInBatches(fileArray, false);
 }
@@ -67,7 +67,7 @@ async function handleFolderSelect(event) {
 async function ingestFilesInBatches(fileArray, isManual = false) {
     const batchSize = 25;
     let processed = 0;
-    const textExtensions = new Set(["c", "cpp", "h", "hpp", "s", "asm", "java", "kt", "py", "js", "gradle", "xml", "mk", "cmake", "txt", "md", "sh", "json"]);
+    const textExtensions = new Set(["c", "cpp", "cc", "cxx", "h", "hpp", "s", "asm", "java", "kt", "py", "js", "gradle", "kts", "xml", "mk", "cmake", "txt", "md", "sh", "json", "properties"]);
 
     for (let i = 0; i < fileArray.length; i += batchSize) {
         const batch = fileArray.slice(i, i + batchSize);
@@ -75,16 +75,19 @@ async function ingestFilesInBatches(fileArray, isManual = false) {
         await Promise.all(batch.map(async item => {
             const ext = item.path.split('.').pop().toLowerCase();
             if (!isManual && !textExtensions.has(ext) && !item.path.endsWith("Makefile") && !item.path.endsWith("CMakeLists.txt")) {
+                engine.registerNonTextAsset(item.path);
                 return;
             }
             try {
                 const text = await item.file.text();
                 engine.ingestDocument(item.path, text, isManual);
-            } catch (err) {}
+            } catch (err) {
+                if (!isManual) engine.registerNonTextAsset(item.path);
+            }
         }));
 
         processed += batch.length;
-        showProgress(`${isManual ? "Ingesting manual" : "Auditing Alignment & Call-Graph"}: ${processed} / ${fileArray.length} files...`);
+        showProgress(`${isManual ? "Ingesting manual" : "Tracing APK Packaging & Runtime"}: ${processed} / ${fileArray.length} files...`);
         updateStatusBar();
         await new Promise(r => setTimeout(r, 2));
     }
@@ -93,13 +96,15 @@ async function ingestFilesInBatches(fileArray, isManual = false) {
     updateStatusBar();
     hideProgress();
 
+    const am = engine.androidModel;
     const critCount = engine.auditFindings.filter(f => f.severity === "CRITICAL").length;
     const highCount = engine.auditFindings.filter(f => f.severity === "HIGH").length;
 
     appendAgentMessage(
-        `<strong>Neuro-Symbolic Runtime & Alignment Engine Ready:</strong><br>` +
-        `• Indexed <strong>${engine.boxes.size}</strong> Conceptual Boxes, <strong>${engine.tethers.length}</strong> Tethers, and <strong>${engine.runtimeReachable.size}</strong> runtime-reachable symbols.<br>` +
-        `• <strong>Static Port & Alignment Audit:</strong> Found <span style="color:#ff7b72;">${critCount} CRITICAL</span> and <span style="color:#d29922;">${highCount} HIGH</span> ARM64/JNI/alignment hazards. Click <strong>Port Audit</strong> or ask about any runtime symbol.`
+        `<strong>Android Packaging & Neuro-Symbolic Runtime Graph Ready:</strong><br>` +
+        `• <strong>APK Structure:</strong> ${am.components.length} Manifest components, ${am.nativeTargets.length} native <code>.so</code> target(s), ${am.javaNativeMethods.length} JNI native methods, ${am.packagedAssets.length} asset/resource entries.<br>` +
+        `• <strong>Runtime Graph & Audit:</strong> ${engine.runtimeReachable.size} runtime-reachable symbols; <span style="color:#ff7b72;">${critCount} CRITICAL</span> and <span style="color:#d29922;">${highCount} HIGH</span> alignment/JNI findings.<br>` +
+        `• Tap <strong>APK & Runtime</strong>, <strong>Port Audit</strong>, or type <code>trace &lt;file_or_symbol&gt;</code>.`
     );
 }
 
@@ -153,7 +158,9 @@ async function loadFileIntoEditor(path, fileObj) {
 
     try {
         const text = patchedContents[path] !== undefined ? patchedContents[path] : await fileObj.text();
-        document.getElementById('diff-file-title').textContent = `${path} (${text.length} bytes)${patchedContents[path] ? " [PATCHED]" : ""}`;
+        const sum = engine.fileSummaries.get(path);
+        const pkgTag = sum ? ` [${sum.packaging}]` : "";
+        document.getElementById('diff-file-title').textContent = `${path}${pkgTag} (${text.length} bytes)${patchedContents[path] ? " [PATCHED]" : ""}`;
         document.getElementById('diff-view').textContent = text;
     } catch (err) {
         document.getElementById('diff-view').textContent = `[!] Error reading file: ${err.message}`;
@@ -184,6 +191,15 @@ function renderSynthesizedDiff(diff) {
     const afterHtml = diff.contextAfter.map(l => `  ${escapeHtml(l)}`).join('\n');
 
     viewEl.innerHTML = `${beforeHtml}\n${insertHtml}${afterHtml}`;
+}
+
+function runApkInspect() {
+    const { html, synthesizedDiff } = engine.analyzeAndroidPackagingAndOperation();
+    appendAgentMessage(html);
+    if (synthesizedDiff) {
+        renderSynthesizedDiff(synthesizedDiff);
+    }
+    updateStatusBar();
 }
 
 function runPortAudit() {

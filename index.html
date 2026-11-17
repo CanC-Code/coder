@@ -24,7 +24,8 @@
             <div id="progress-container" style="display: none; padding: 6px 12px; background: var(--bg-tertiary); font-size: 11px; border-bottom: 1px solid var(--border-color); color: var(--accent-blue);">
                 <span id="progress-text">Indexing files...</span>
             </div>
-            <div style="padding: 6px 8px; border-bottom: 1px solid var(--border-color); display: flex; gap: 4px; background: var(--bg-tertiary);">
+            <div style="padding: 6px 8px; border-bottom: 1px solid var(--border-color); display: flex; gap: 4px; flex-wrap: wrap; background: var(--bg-tertiary);">
+                <button onclick="runApkInspect()" style="flex: 1; background: #1f6feb; border: none; color: white; padding: 4px; border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer;">APK & Runtime</button>
                 <button onclick="runPortAudit()" style="flex: 1; background: #8957e5; border: none; color: white; padding: 4px; border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer;">Port Audit</button>
                 <button onclick="exportSession()" style="flex: 1; background: #21262d; border: 1px solid var(--border-color); color: var(--text-main); padding: 4px; border-radius: 4px; font-size: 11px; cursor: pointer;">Save State</button>
                 <label style="flex: 1; background: #21262d; border: 1px solid var(--border-color); color: var(--text-main); padding: 4px; border-radius: 4px; font-size: 11px; text-align: center; cursor: pointer;">
@@ -54,10 +55,10 @@
         <div class="chat-panel">
             <div class="panel-header">N64 to Android Porting Agent</div>
             <div class="chat-messages" id="chat-messages">
-                <div class="message agent">System online. Runtime Call-Graph Analyzer, Android ARM64 Alignment Auditor (LP64, MTE, 16KB pages), and Bidirectional Lexicon ready. Mount your workspace or click <strong>Port Audit</strong>.</div>
+                <div class="message agent">System online. Android APK Packaging Inspector, Runtime Call-Graph Tracer, ARM64 Alignment Auditor, and Bidirectional Lexicon ready. Mount your workspace and tap <strong>APK & Runtime</strong> or <strong>Port Audit</strong>.</div>
             </div>
             <div class="chat-input-area">
-                <input type="text" id="user-input" placeholder="Ask about runtime usages, audit alignment, or trace symbols..." onkeypress="handleKey(event)">
+                <input type="text" id="user-input" placeholder="Try: 'apk packaging', 'audit alignment', or 'trace BkaService.java'..." onkeypress="handleKey(event)">
                 <button class="btn-approve" onclick="sendGoal()">Send</button>
             </div>
         </div>
@@ -65,7 +66,7 @@
         <!-- Status Bar -->
         <div class="statusbar">
             <span>Domain: Android aarch64 & N64 Port Perfection</span>
-            <span id="status-metrics">Boxes: 0 | Tethers: 0 | Alignment Findings: 0 | tau: 0.35</span>
+            <span id="status-metrics">Boxes: 0 | .so Targets: 0 | JNI: 0 | Findings: 0</span>
         </div>
     </div>
 
