@@ -12,13 +12,13 @@
         <div class="sidebar">
             <div class="sidebar-header">Repository Files</div>
             <ul class="file-tree" id="file-tree">
-                <li>📁 core/graph/box.py</li>
-                <li>📁 core/graph/tether.py</li>
-                <li>📁 core/graph/traverser.py</li>
-                <li>📁 core/runtime/host_orchestrator.py</li>
-                <li>📁 core/runtime/wasm_bridge.cpp</li>
-                <li>📁 instrumentation/graph_validator.py</li>
-                <li>📁 instrumentation/log_inspector.py</li>
+                <li onclick="selectFile('core/graph/box.py')">📁 core/graph/box.py</li>
+                <li onclick="selectFile('core/graph/tether.py')">📁 core/graph/tether.py</li>
+                <li onclick="selectFile('core/graph/traverser.py')">📁 core/graph/traverser.py</li>
+                <li onclick="selectFile('core/runtime/host_orchestrator.py')">📁 core/runtime/host_orchestrator.py</li>
+                <li onclick="selectFile('core/runtime/wasm_bridge.cpp')">📁 core/runtime/wasm_bridge.cpp</li>
+                <li onclick="selectFile('instrumentation/graph_validator.py')">📁 instrumentation/graph_validator.py</li>
+                <li onclick="selectFile('instrumentation/log_inspector.py')">📁 instrumentation/log_inspector.py</li>
             </ul>
         </div>
 
@@ -27,7 +27,7 @@
             <div class="panel-header">Active Insertions & Diff Review</div>
             <div class="editor-workspace">
                 <div class="diff-box">
-                    <div class="diff-header">core/runtime/host_orchestrator.py (Pending Insertions)</div>
+                    <div class="diff-header" id="diff-file-title">core/runtime/host_orchestrator.py (Pending Insertions)</div>
                     <div class="diff-content" id="diff-view">
  class HostOrchestrator:
      def __init__(self, threshold=0.4):
