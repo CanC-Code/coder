@@ -8,14 +8,24 @@
 </head>
 <body>
     <div class="ide-container">
-        <!-- Sidebar File Explorer -->
+        <!-- Sidebar File Explorer & State Controls -->
         <div class="sidebar">
-            <div class="sidebar-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <div class="sidebar-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
                 <span>Workspace Files</span>
-                <button onclick="openFolder()" style="background: var(--accent-blue); color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer;">Open Folder</button>
+                <div style="display: flex; gap: 4px;">
+                    <label style="background: var(--accent-blue); color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer;">
+                        Load Files <input type="file" id="folder-input" multiple style="display: none;" onchange="handleFilesSelect(event)">
+                    </label>
+                </div>
+            </div>
+            <div style="padding: 8px; border-bottom: 1px solid var(--border-color); display: flex; gap: 6px; background: var(--bg-tertiary);">
+                <button onclick="exportSession()" style="flex: 1; background: #21262d; border: 1px solid var(--border-color); color: var(--text-main); padding: 4px; border-radius: 4px; font-size: 11px; cursor: pointer;">Save State</button>
+                <label style="flex: 1; background: #21262d; border: 1px solid var(--border-color); color: var(--text-main); padding: 4px; border-radius: 4px; font-size: 11px; text-align: center; cursor: pointer;">
+                    Load State <input type="file" id="state-input" accept=".json" style="display: none;" onchange="importSession(event)">
+                </label>
             </div>
             <ul class="file-tree" id="file-tree">
-                <li style="color: var(--text-muted); font-style: italic; padding: 12px;">No folder loaded. Click "Open Folder" to mount workspace.</li>
+                <li style="color: var(--text-muted); font-style: italic; padding: 12px;">No files loaded. Click "Load Files" to select your project or manuals (e.g. N64 manual).</li>
             </ul>
         </div>
 
@@ -25,7 +35,7 @@
             <div class="editor-workspace">
                 <div class="diff-box">
                     <div class="diff-header" id="diff-file-title">Select a file from your workspace</div>
-                    <div class="diff-content" id="diff-view">// File content will appear here upon selection.</div>
+                    <div class="diff-content" id="diff-view">// File content or manual text will appear here upon selection.</div>
                 </div>
                 <div style="display: flex; justify-content: flex-end; gap: 10px;">
                     <button class="btn-approve" onclick="approveAndSave()">Approve & Save Changes</button>
@@ -37,17 +47,17 @@
         <div class="chat-panel">
             <div class="panel-header">Goal & Conceptual Linker Chat</div>
             <div class="chat-messages" id="chat-messages">
-                <div class="message agent">System online. Open a local project folder to begin neural graph indexing and Wasm validation.</div>
+                <div class="message agent">System online. Load project files or reference manuals to begin intelligent neural graph indexing and Wasm validation. State persistence is active.</div>
             </div>
             <div class="chat-input-area">
-                <input type="text" id="user-input" placeholder="Enter objective or fix..." onkeypress="handleKey(event)">
+                <input type="text" id="user-input" placeholder="Ask about code, manuals, or objectives..." onkeypress="handleKey(event)">
                 <button class="btn-approve" onclick="sendGoal()">Send</button>
             </div>
         </div>
 
         <!-- Status Bar -->
         <div class="statusbar">
-            <span>Status: Ready for Local Workspace</span>
+            <span>Status: Ready (Universal File Loader Active)</span>
             <span>Graph Threshold (tau): 0.4 | Lexical Engine: Active</span>
         </div>
     </div>
