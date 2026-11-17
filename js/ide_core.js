@@ -8,7 +8,7 @@ let chatHistory = [];
 function updateStatusBar() {
     const statusRight = document.getElementById('status-metrics');
     if (statusRight) {
-        statusRight.textContent = `Boxes: ${engine.boxes.size} | Tethers: ${engine.tethers.length} | Lexicon: ${Object.keys(engine.lexicon.dictionary).length} | tau: ${engine.tau}`;
+        statusRight.textContent = `Boxes: ${engine.boxes.size} | Tethers: ${engine.tethers.length} | Alignment Findings: ${engine.auditFindings.length} | tau: ${engine.tau}`;
     }
 }
 
@@ -59,7 +59,7 @@ async function handleFolderSelect(event) {
     }
 
     renderTree(root, fileTreeEl, "");
-    appendAgentMessage(`Mounted workspace with <strong>${files.length}</strong> files. Running AST symbol extraction, call-graph linking, and BM25 indexing...`);
+    appendAgentMessage(`Mounted workspace with <strong>${files.length}</strong> files. Running runtime call-graph extraction, Android ARM64 alignment audit, and BM25 indexing...`);
 
     await ingestFilesInBatches(fileArray, false);
 }
@@ -84,7 +84,7 @@ async function ingestFilesInBatches(fileArray, isManual = false) {
         }));
 
         processed += batch.length;
-        showProgress(`${isManual ? "Ingesting manual" : "Indexing AST & Call-Graph"}: ${processed} / ${fileArray.length} files...`);
+        showProgress(`${isManual ? "Ingesting manual" : "Auditing Alignment & Call-Graph"}: ${processed} / ${fileArray.length} files...`);
         updateStatusBar();
         await new Promise(r => setTimeout(r, 2));
     }
@@ -93,10 +93,13 @@ async function ingestFilesInBatches(fileArray, isManual = false) {
     updateStatusBar();
     hideProgress();
 
+    const critCount = engine.auditFindings.filter(f => f.severity === "CRITICAL").length;
+    const highCount = engine.auditFindings.filter(f => f.severity === "HIGH").length;
+
     appendAgentMessage(
-        `<strong>Neuro-Symbolic Graph Ready:</strong> Indexed <strong>${engine.boxes.size}</strong> Conceptual Boxes, ` +
-        `<strong>${engine.tethers.length}</strong> dependency/call Tethers, and ` +
-        `<strong>${Object.keys(engine.lexicon.dictionary).length}</strong> bidirectional Lexicon concepts.`
+        `<strong>Neuro-Symbolic Runtime & Alignment Engine Ready:</strong><br>` +
+        `• Indexed <strong>${engine.boxes.size}</strong> Conceptual Boxes, <strong>${engine.tethers.length}</strong> Tethers, and <strong>${engine.runtimeReachable.size}</strong> runtime-reachable symbols.<br>` +
+        `• <strong>Static Port & Alignment Audit:</strong> Found <span style="color:#ff7b72;">${critCount} CRITICAL</span> and <span style="color:#d29922;">${highCount} HIGH</span> ARM64/JNI/alignment hazards. Click <strong>Port Audit</strong> or ask about any runtime symbol.`
     );
 }
 
@@ -183,6 +186,15 @@ function renderSynthesizedDiff(diff) {
     viewEl.innerHTML = `${beforeHtml}\n${insertHtml}${afterHtml}`;
 }
 
+function runPortAudit() {
+    const { html, synthesizedDiff } = engine.runFullPortAudit();
+    appendAgentMessage(html);
+    if (synthesizedDiff) {
+        renderSynthesizedDiff(synthesizedDiff);
+    }
+    updateStatusBar();
+}
+
 function appendAgentMessage(htmlText) {
     const chatMessages = document.getElementById('chat-messages');
     const agentMsg = document.createElement('div');
@@ -227,7 +239,7 @@ function sendGoal() {
 
 async function approveAndSave() {
     if (!pendingDiff) {
-        appendAgentMessage("No pending diff insertion staged. Ask the agent to diagnose or patch a specific symbol or file first.");
+        appendAgentMessage("No pending diff insertion staged. Run a Port Audit or ask the agent to diagnose a specific symbol or file first.");
         return;
     }
 
@@ -252,11 +264,9 @@ async function approveAndSave() {
     engine.reinforceActiveTethers();
     updateStatusBar();
 
-    // Refresh editor view with committed file
     document.getElementById('diff-file-title').textContent = `${path} (${updatedText.length} bytes) [COMMITTED]`;
     document.getElementById('diff-view').textContent = updatedText;
 
-    // Trigger browser download of the patched file so user can apply directly on device
     const blob = new Blob([updatedText], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -311,7 +321,7 @@ function importSession(event) {
             });
 
             updateStatusBar();
-            appendAgentMessage(`<strong>Session Restored:</strong> Loaded ${engine.boxes.size} Conceptual Boxes, ${engine.tethers.length} Tethers, and ${Object.keys(engine.lexicon.dictionary).length} Lexicon entries.`);
+            appendAgentMessage(`<strong>Session Restored:</strong> Loaded ${engine.boxes.size} Conceptual Boxes, ${engine.tethers.length} Tethers, and ${engine.auditFindings.length} Alignment Findings.`);
         } catch (err) {
             alert("Failed to load session: " + err.message);
         }
