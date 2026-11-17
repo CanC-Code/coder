@@ -1,9 +1,9 @@
 class ConceptualBox {
     constructor(id, type, domain, execRole, payload) {
         this.id = id;
-        this.type = type;         // 'file' | 'symbol' | 'jni_bridge' | 'manual_section' | 'build_config' | 'android_component' | 'native_lib' | 'android_api_doc'
-        this.domain = domain;     // 'n64_core' | 'libultra' | 'android_wrapper' | 'build_system' | 'offline_tool' | 'n64_manual' | 'android_sdk'
-        this.execRole = execRole; // 'ENTRY_POINT' | 'HOT_PATH_RUNTIME' | 'JNI_BOUNDARY' | 'BUILD_CONFIG' | 'OFFLINE_BUILD_TOOL' | 'REFERENCE_DOC'
+        this.type = type;         // 'file' | 'symbol' | 'jni_bridge' | 'manual_section' | 'build_config' | 'android_component' | 'native_lib' | 'android_api_doc' | 'android_resource'
+        this.domain = domain;     // 'n64_core' | 'libultra' | 'android_wrapper' | 'build_system' | 'offline_tool' | 'n64_manual' | 'android_sdk' | 'android_ui' | 'android_packaging' | 'mips_asm'
+        this.execRole = execRole; // 'ENTRY_POINT' | 'HOT_PATH_RUNTIME' | 'JNI_BOUNDARY' | 'BUILD_CONFIG' | 'OFFLINE_BUILD_TOOL' | 'REFERENCE_DOC' | 'UI_LAYER' | 'APK_PAYLOAD'
         this.payload = payload;   // { name, filePath, line, signature, snippet, packaging }
         this.activation = 0.0;
     }
@@ -14,7 +14,7 @@ class Tether {
         this.sourceId = sourceId;
         this.targetId = targetId;
         this.weight = Math.max(0.05, Math.min(1.0, weight));
-        this.relation = relation; // 'defines' | 'calls' | 'includes' | 'binds_jni' | 'binds_jni_dynamic' | 'reverse_jni_lookup' | 'loads_native_lib' | 'compiles_into_so' | 'launches_component' | 'links_prefab' | 'documents'
+        this.relation = relation; // 'defines' | 'calls' | 'includes' | 'binds_jni' | 'binds_jni_dynamic' | 'reverse_jni_lookup' | 'loads_native_lib' | 'compiles_into_so' | 'launches_component' | 'links_prefab' | 'binds_resource' | 'documents'
     }
 
     reinforce(factor = 1.08) {
@@ -30,22 +30,36 @@ class BidirectionalLexicon {
     constructor() {
         this.dictionary = {}; // term -> { definition, domain, sources: [], confidence }
         this.thesaurus = {};  // term -> { synonyms: [], antonyms: [], cluster: [] }
-        this._seedAndroidAndN64Ontology();
+        this._seedCompleteAndroidAndN64Ontology();
     }
 
-    _seedAndroidAndN64Ontology() {
+    _seedCompleteAndroidAndN64Ontology() {
         const seeds = [
-            // --- Core Android App Components & Lifecycle (developer.android.com/guide/components) ---
-            ["activity", "android.app.Activity: Single focused UI screen with lifecycle callbacks onCreate -> onStart -> onResume -> onPause -> onStop -> onDestroy. Games must set android:configChanges=\"orientation|screenSize|screenLayout|keyboardHidden\" to avoid surface destruction on rotation.", "android_sdk", ["gameactivity", "nativeactivity", "appcompatactivity", "componentactivity"], ["service"]],
-            ["service", "android.app.Service: Background or foreground execution component without UI. Android 14+ (API 34+) requires explicit android:foregroundServiceType and matching FOREGROUND_SERVICE_* permission before calling startForeground().", "android_sdk", ["foreground_service", "bound_service", "intentservice", "workmanager"], ["activity"]],
-            ["broadcastreceiver", "android.content.BroadcastReceiver: Event listener for system or app Intents. Android 14+ requires RECEIVER_EXPORTED or RECEIVER_NOT_EXPORTED flag on dynamic Context.registerReceiver().", "android_sdk", ["receiver", "intent_filter", "sendbroadcast"], []],
+            // --- 1. Core Android App Components, Context, IPC & System Services (developer.android.com/guide/components) ---
+            ["activity", "android.app.Activity: Single focused UI screen with lifecycle callbacks onCreate -> onStart -> onResume -> onPause -> onStop -> onDestroy. Games/native wrappers must declare android:configChanges=\"orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize\" to prevent ANativeWindow destruction on rotation.", "android_sdk", ["gameactivity", "nativeactivity", "appcompatactivity", "componentactivity"], ["service"]],
+            ["service", "android.app.Service: Background or foreground execution component without UI. Android 14+ (API 34+) requires explicit android:foregroundServiceType and matching FOREGROUND_SERVICE_* permission before calling startForeground().", "android_sdk", ["foreground_service", "bound_service", "intentservice", "workmanager", "startforeground"], ["activity"]],
+            ["broadcastreceiver", "android.content.BroadcastReceiver: Event listener for system or app Intents. Android 14+ (API 34+) requires explicit Context.RECEIVER_EXPORTED or Context.RECEIVER_NOT_EXPORTED flag on every runtime Context.registerReceiver() call.", "android_sdk", ["receiver", "registerreceiver", "receiver_exported", "receiver_not_exported", "sendbroadcast"], []],
             ["contentprovider", "android.content.ContentProvider: Structured data sharing interface across apps via URI and ContentResolver; enforces URI permissions and Scoped Storage.", "android_sdk", ["provider", "contentresolver", "fileprovider"], []],
-            ["intent", "android.content.Intent: Asynchronous messaging object binding Activities, Services, and BroadcastReceivers. Implicit intents cannot start Services (API 21+) and require explicit component targets.", "android_sdk", ["pendingintent", "intent_filter", "action_main", "category_launcher"], []],
+            ["intent", "android.content.Intent: Asynchronous messaging object binding Activities, Services, and BroadcastReceivers. Implicit intents cannot start Services (API 21+) and PendingIntents require FLAG_IMMUTABLE or FLAG_MUTABLE (API 31+).", "android_sdk", ["pendingintent", "flag_immutable", "intent_filter", "action_main", "category_launcher"], []],
             ["context", "android.content.Context: Gateway to app resources, AssetManager, getFilesDir(), getExternalFilesDir(), and system services. Never store an Activity Context in a static field or native global to avoid memory leaks.", "android_sdk", ["applicationcontext", "getapplicationcontext", "getfilesdir", "getexternalfilesdir"], []],
             ["looper", "android.os.Looper & Handler / ALooper: Thread message queue loop. Native threads must poll ALooper_pollOnce() (replacing deprecated ALooper_pollAll) to process input and lifecycle events.", "android_sdk", ["handler", "alooper", "alooper_pollonce", "messagequeue"], []],
             ["binder", "android.os.Binder / AIDL: Android kernel-mediated IPC transaction mechanism with a 1 MB per-process transaction buffer limit; never pass large framebuffers or ROMs over Binder.", "android_sdk", ["aidl", "ibinder", "parcelable", "transactiontoolargeexception"], []],
 
-            // --- Android NDK, JNI & ART Runtime (developer.android.com/ndk) ---
+            // --- 2. Jetpack Compose, Modern Kotlin Architecture & State Management (developer.android.com/jetpack/compose) ---
+            ["composable", "@Composable (Jetpack Compose): Declarative Kotlin UI function driven by immutable state. Must be idempotent and side-effect free during recomposition; wrap async work in LaunchedEffect or SideEffect.", "android_ui", ["compose", "recomposition", "launchedeffect", "sideeffect", "disposableeffect", "modifier"], ["xml_layout"]],
+            ["viewmodel", "androidx.lifecycle.ViewModel: Lifecycle-aware state holder surviving configuration changes. Exposes immutable StateFlow<UiState> collected safely in UI via collectAsStateWithLifecycle().", "android_ui", ["stateflow", "mutablestateflow", "collectasstatewithlifecycle", "viewmodelscope", "livedata"], []],
+            ["coroutines", "Kotlin Coroutines & Structured Concurrency: Dispatchers.Main for UI, Dispatchers.IO for disk/network/ROM I/O, Dispatchers.Default for CPU work. Never use GlobalScope; bind to viewModelScope or lifecycleScope.", "android_ui", ["suspend", "flow", "dispatchers", "lifecyclescope", "launch", "withcontext"], []],
+            ["hilt", "Dagger Hilt Dependency Injection (@HiltAndroidApp, @AndroidEntryPoint, @HiltViewModel, @Inject): Compile-time dependency graph wired to Android component lifecycles.", "android_ui", ["dagger", "hiltandroidapp", "androidentrypoint", "hiltviewmodel", "inject"], []],
+            ["room", "Jetpack Room Persistence (@Entity, @Dao, @Database): Compile-time verified SQLite abstraction supporting suspend functions and reactive Flow queries.", "android_ui", ["sqlite", "dao", "database", "datastore"], []],
+            ["workmanager", "Jetpack WorkManager (CoroutineWorker): Guaranteed deferrable background task scheduler persisting across app restarts and reboots.", "android_ui", ["worker", "coroutineworker", "periodicworkrequest", "onetimeworkrequest"], []],
+            ["navigation", "Jetpack Navigation (NavHost, NavController): Single-Activity navigation graph supporting type-safe Kotlin serializable routes and deep links.", "android_ui", ["navhost", "navcontroller", "composable_route"], []],
+
+            // --- 3. Edge-to-Edge, WindowInsets, Large Screens & XML Resources (developer.android.com/develop/ui) ---
+            ["edgetoedge", "Edge-to-Edge & WindowInsets (enableEdgeToEdge / ViewCompat.setOnApplyWindowInsetsListener): Android 15-17 enforce edge-to-edge display by default; pad HUDs and touch controls using systemBars() and displayCutout() insets.", "android_ui", ["enableedgetoedge", "windowinsets", "displaycutout", "systembars", "insets"], []],
+            ["viewbinding", "ViewBinding & XML Resources (R.layout.*, R.id.*, R.string.*): Null-safe, type-safe binding classes generated from res/layout/*.xml replacing legacy findViewById() and kotlin-android-extensions.", "android_ui", ["findviewbyid", "r_layout", "r_id", "r_string", "databinding"], []],
+            ["largescreen", "Android 17+ Large-Screen & Adaptive Layout Enforcement (sw >= 600dp): Android 17 ignores screenOrientation, setRequestedOrientation(), and resizeableActivity=\"false\" on tablets, foldables, and desktop windows unless android:appCategory=\"game\" is declared.", "android_compliance", ["appcategory", "setrequestedorientation", "resizeableactivity", "foldable", "tablet", "desktop_windowing"], []],
+
+            // --- 4. Android NDK, JNI & ART Runtime (developer.android.com/ndk) ---
             ["jni", "Java Native Interface (JNI): C/C++ bridge to Android ART JVM via JNIEnv* (per-thread) and JavaVM* (process-wide). Supports static Java_pkg_Class_method exports and dynamic JNI_OnLoad + RegisterNatives(JNINativeMethod[]).", "android_ndk", ["jnienv", "javavm", "jni_onload", "registernatives", "jninativemethod", "jniexport"], []],
             ["registernatives", "JNIEnv::RegisterNatives: Dynamic native method registration inside JNI_OnLoad binding JNINativeMethod{name, signature, fnPtr} tables without exported Java_* symbol names; faster lookup and compatible with obfuscated Java classes.", "android_ndk", ["jni_onload", "jninativemethod", "dynamic_jni"], []],
             ["localref", "JNI Local Reference Table: ART limits local JNI references (jobject, jstring, jbyteArray) per native frame. Loops creating local refs must call env->DeleteLocalRef() or PushLocalFrame/PopLocalFrame to prevent JNI table overflow crashes.", "android_ndk", ["deletelocalref", "newglobalref", "deleteglobalref", "pushlocalframe", "poplocalframe"], []],
@@ -53,27 +67,28 @@ class BidirectionalLexicon {
             ["aassetmanager", "NDK AssetManager (AAssetManager_fromJava / AAssetManager_open): Reads compressed or uncompressed files packaged inside APK assets/ directly from C/C++ without extracting to internal storage.", "android_ndk", ["aasset", "assetmanager", "assets", "aasset_open"], []],
             ["anativewindow", "NDK ANativeWindow: Native C/C++ handle to an Android Surface (SurfaceView / TextureView). Must lock via mutex across onNativeWindowCreated / surfaceDestroyed so render threads never write to a destroyed window.", "android_ndk", ["surfaceview", "surfaceholder", "surfacedestroyed", "surfacecreated", "anativewindow_fromsurface"], []],
             ["ahardwarebuffer", "NDK AHardwareBuffer: Zero-copy shared graphic/memory buffer across CPU, OpenGL ES, Vulkan, and Android MediaCodec / SurfaceComposer.", "android_ndk", ["graphicbuffer", "eglimage", "vkimportandroidhardwarebuffer"], []],
-            ["ndk", "Android Native Development Kit (NDK r27+): Clang/LLVM cross-compiler toolchain targeting arm64-v8a (aarch64) with bionic libc, Unified Headers, and CMake/ndk-build integration.", "android_ndk", ["aarch64", "arm64", "cmake", "ndk_build", "bionic", "clang"], []],
+            ["ndk", "Android Native Development Kit (NDK r27-r29+): Clang/LLVM cross-compiler toolchain targeting arm64-v8a (aarch64) with bionic libc, Unified Headers, and CMake/ndk-build integration.", "android_ndk", ["aarch64", "arm64", "cmake", "ndk_build", "bionic", "clang"], []],
 
-            // --- AGDK, Graphics & Audio (developer.android.com/games/agdk) ---
+            // --- 5. AGDK, Graphics & Audio (developer.android.com/games/agdk) ---
             ["gameactivity", "Jetpack GameActivity (AGDK): Modern subclass of AppCompatActivity bridging Java lifecycle, input, and SurfaceView events to native C/C++ android_main(struct android_app*) via JNI without NativeActivity limitations.", "android_agdk", ["agdk", "android_main", "android_app", "app_cmd_term_window", "gametextinput"], []],
             ["swappy", "Android Frame Pacing Library (SwappyGL / SwappyVk): Synchronizes OpenGL ES / Vulkan frame submission with SurfaceFlinger Choreographer VSYNC intervals to eliminate frame jitter and latency.", "android_agdk", ["frame_pacing", "choreographer", "vsync", "swappygl", "swappyvk"], []],
             ["oboe", "Oboe / AAudio Low-Latency Audio: High-performance C++ audio stream API targeting AAudio (API 27+) with automatic OpenSL ES fallback, exclusive MMAP mode, and real-time audio callbacks.", "android_agdk", ["aaudio", "opensles", "audiostream", "audio_interface", "ai"], []],
             ["vulkan", "Vulkan on Android (VK_KHR_android_surface): Explicit low-overhead GPU API supporting descriptor indexing, push constants, and dynamic rendering for modern N64 RDP/HLE backends.", "android_graphics", ["vkcreateandroidsurfacekhr", "vkqueuepresentkhr", "spirv", "opengles", "egl"], []],
             ["egl", "EGL Context & Window Surface: Bridges OpenGL ES 3.x contexts to ANativeWindow via eglCreateWindowSurface and eglSwapBuffers.", "android_graphics", ["opengles", "gles3", "eglswapbuffers", "eglcreatewindowsurface"], []],
 
-            // --- Modern Build System, Packaging, R8 & Android 14-16+ Compliance ---
-            ["apk", "Android Application Package (APK / AAB): Signed ZIP container holding AndroidManifest.xml (binary XML), classes.dex (ART bytecode), lib/arm64-v8a/*.so (page-aligned native ELF), res/, resources.arsc, and assets/.", "android_packaging", ["aab", "bundle", "classes_dex", "zipalign", "apksigner", "shared_library"], []],
-            ["manifest", "AndroidManifest.xml: Root app descriptor declaring package, uses-sdk, uses-permission, uses-feature, queries (package visibility), and exported/foregroundServiceType rules for Activities, Services, Receivers, and Providers.", "android_packaging", ["androidmanifest", "foregroundservicetype", "exported", "uses_permission", "uses_feature"], []],
+            // --- 6. Build System, Play Asset Delivery, R8 & Android 14-17+ Compliance ---
+            ["apk", "Android Application Package (APK / AAB / Play Asset Delivery): Signed container holding AndroidManifest.xml (binary XML), classes.dex (ART bytecode), lib/arm64-v8a/*.so (16KB page-aligned native ELF), res/, resources.arsc, and assets/.", "android_packaging", ["aab", "bundle", "classes_dex", "zipalign", "apksigner", "shared_library", "assetpack"], []],
+            ["manifest", "AndroidManifest.xml: Root app descriptor declaring package, uses-sdk, uses-permission, uses-feature, queries (package visibility), appCategory, and exported/foregroundServiceType rules.", "android_packaging", ["androidmanifest", "foregroundservicetype", "exported", "uses_permission", "uses_feature"], []],
             ["gradle", "Android Gradle Plugin (AGP 8/9) & Version Catalog (libs.versions.toml): Declarative Kotlin/Groovy build configuration managing compileSdk, targetSdk, ndkVersion, abiFilters, externalNativeBuild, and Prefab AAR packages.", "android_build", ["agp", "build_gradle", "build_gradle_kts", "libs_versions_toml", "prefab", "externalnativebuild"], []],
             ["r8", "R8 Shrinking, Optimization & Obfuscation: Compiles bytecode to DEX and strips unused classes/methods. Any Java/Kotlin class, field, or method accessed from C++ via JNI FindClass/GetMethodID MUST be retained with @Keep or proguard-rules.pro -keep rules.", "android_build", ["proguard", "keep", "findclass", "getmethodid", "getfieldid", "nosuchmethoderror"], []],
-            ["pagesize16kb", "Android 15/16+ 16 KB ELF & Memory Page Alignment: Devices with 16 KB kernel pages require -Wl,-z,max-page-size=16384 in CMake/NDK, uncompressed 16 KB-aligned .so packaging (useLegacyPackaging=false), and sysconf(_SC_PAGESIZE) instead of hardcoded 4096 or PAGE_SIZE.", "android_compliance", ["16kb", "max_page_size", "16384", "sysconf", "sc_pagesize", "4096", "uselegacypackaging", "extractnativelibs"], []],
+            ["pagesize16kb", "Android 15-17+ 16 KB ELF & Memory Page Alignment: Devices with 16 KB kernel pages require -Wl,-z,max-page-size=16384 in CMake/NDK, uncompressed 16 KB-aligned .so packaging (useLegacyPackaging=false), and sysconf(_SC_PAGESIZE) instead of hardcoded 4096 or PAGE_SIZE.", "android_compliance", ["16kb", "max_page_size", "16384", "sysconf", "sc_pagesize", "4096", "uselegacypackaging", "extractnativelibs"], []],
+            ["saferdcl", "Android 17+ Safer Dynamic Code Loading (System.load Read-Only): Any native .so loaded dynamically via System.load(path) on targetSdk 37+ must be marked read-only (File.setReadOnly() / chmod 0444) before loading or ART throws UnsatisfiedLinkError.", "android_compliance", ["system_load", "setreadonly", "dcl", "dlopen"], []],
             ["alignment", "ARM64 ABI, LP64 & MTE Alignment: 64-bit pointers (LP64) where long is 8 bytes, 16-byte NEON/DMA struct alignment, and ARM64 Memory Tagging Extension (MTE) tag preservation (never cast pointers to u32/int).", "android_compliance", ["lp64", "mte", "tbi", "aligned", "uintptr_t", "neon"], ["unaligned"]],
-            ["scopedstorage", "Scoped Storage (API 29-36+): Apps read/write private files in Context.getFilesDir() / getExternalFilesDir() without permissions, and shared media/ROMs via Storage Access Framework (ACTION_OPEN_DOCUMENT) or MediaStore instead of legacy WRITE_EXTERNAL_STORAGE.", "android_compliance", ["action_open_document", "saf", "mediastore", "write_external_storage", "manage_external_storage"], []],
-            ["predictiveback", "Predictive Back Gesture (API 33-36+): Replaces deprecated Activity.onBackPressed() with OnBackPressedDispatcher and OnBackPressedCallback so Android system back-to-home animations work smoothly.", "android_compliance", ["onbackpressed", "onbackpresseddispatcher", "onbackpressedcallback", "enableonbackinvokedcallback"], []],
+            ["scopedstorage", "Scoped Storage (API 29-37+): Apps read/write private files in Context.getFilesDir() / getExternalFilesDir() without permissions, and shared media/ROMs via Storage Access Framework (ACTION_OPEN_DOCUMENT) or MediaStore instead of legacy WRITE_EXTERNAL_STORAGE.", "android_compliance", ["action_open_document", "saf", "mediastore", "write_external_storage", "manage_external_storage"], []],
+            ["predictiveback", "Predictive Back Gesture (API 33-37+): Replaces deprecated Activity.onBackPressed() with OnBackPressedDispatcher and OnBackPressedCallback so Android system back-to-home animations work smoothly.", "android_compliance", ["onbackpressed", "onbackpresseddispatcher", "onbackpressedcallback", "enableonbackinvokedcallback"], []],
             ["segv", "SIGSEGV / SIGBUS / Tombstone Crash Analysis: Native ARM64 fault caused by null dereference, 32-bit pointer truncation, MTE tag mismatch, unaligned access, or race on destroyed ANativeWindow.", "debugging", ["segvdump", "sigsegv", "sigbus", "tombstone", "ndk_stack", "addr2line", "crash"], []],
 
-            // --- N64 Hardware & SDK Core ---
+            // --- 7. N64 Hardware & SDK Core ---
             ["rcp", "Reality Coprocessor: N64 main graphics and audio co-processor housing the RSP and RDP.", "n64_hardware", ["coprocessor", "reality_coprocessor"], ["cpu"]],
             ["rsp", "Reality Signal Processor: MIPS-based vector processor executing N64 geometry and audio microcode.", "n64_hardware", ["signal_processor", "microcode_engine", "ucode"], []],
             ["rdp", "Reality Display Processor: N64 hardware pixel rasterizer, z-buffer, and texture combiner.", "n64_hardware", ["display_processor", "rasterizer", "combiner"], []],
@@ -195,6 +210,7 @@ class NeuroSymbolicEngine {
             packageName: null,
             namespace: null,
             applicationId: null,
+            appCategory: null,
             compileSdk: null,
             minSdk: null,
             targetSdk: null,
@@ -202,16 +218,22 @@ class NeuroSymbolicEngine {
             extractNativeLibs: null,
             useLegacyPackaging: null,
             prefabEnabled: false,
+            composeEnabled: false,
+            viewBindingEnabled: false,
             abiFilters: [],
             permissions: [],
             features: [],
-            components: [],           // { kind, name, shortName, exported, foregroundServiceType, configChanges, hasIntentFilter, isLauncher, filePath, line }
+            components: [],           // { kind, name, shortName, exported, foregroundServiceType, configChanges, screenOrientation, resizeableActivity, hasIntentFilter, isLauncher, filePath, line }
+            composables: [],          // { name, filePath, line }
+            viewModels: [],           // { name, filePath, line }
+            xmlResources: [],         // { kind: 'layout'|'values'|'drawable'|'menu'|'xml', resRef, ids: [], strings: [], filePath }
+            resourceRefs: [],         // { ref, filePath, line }
             javaNativeMethods: [],    // { className, packageName, methodName, expectedJniSymbol, filePath, line, boundCBoxId, bindingType }
             dynamicJniMethods: [],    // { javaName, signature, cppFuncName, filePath, line }
             reverseJniLookups: [],    // { kind: 'FindClass'|'GetMethodID'|'GetFieldID', target, signature, filePath, line }
             proguardRules: [],        // { rule, filePath, line }
             proguardFiles: [],
-            loadedLibraries: [],      // { libName, soFileName, filePath, line }
+            loadedLibraries: [],      // { libName, soFileName, loadKind: 'loadLibrary'|'load', filePath, line }
             nativeTargets: [],        // { targetName, soFileName, buildFile, line, sourceGlobs: [], explicitSources: [], linkedLibs: [], prefabPackages: [] }
             versionCatalog: { versions: {}, libraries: {}, plugins: {} },
             packagedAssets: [],       // { path, category }
@@ -314,7 +336,7 @@ class NeuroSymbolicEngine {
             return { domain: "android_packaging", execRole: "APK_PAYLOAD", packaging: "PACKAGED_ASSET" };
         }
         if (p.includes("/res/") || p.startsWith("res/")) {
-            return { domain: "android_packaging", execRole: "APK_PAYLOAD", packaging: "PACKAGED_RESOURCE" };
+            return { domain: "android_ui", execRole: "APK_PAYLOAD", packaging: "PACKAGED_RESOURCE" };
         }
         if (ext === "java" || ext === "kt") {
             return { domain: "android_wrapper", execRole: "JNI_BOUNDARY", packaging: "PACKAGED_DEX" };
@@ -422,6 +444,9 @@ class NeuroSymbolicEngine {
             this.androidModel.packagedAssets.push({ path, category: "asset" });
         } else if (packaging === "PACKAGED_RESOURCE") {
             this.androidModel.packagedAssets.push({ path, category: "resource" });
+            if (ext === "xml") {
+                this._parseAndroidResourceXml(path, text, fileBoxId);
+            }
         }
 
         const lowerPath = path.toLowerCase();
@@ -563,9 +588,60 @@ class NeuroSymbolicEngine {
         this.fileSummaries.set(path, summary);
     }
 
+    _parseAndroidResourceXml(path, text, fileBoxId) {
+        const lower = path.toLowerCase();
+        const fileNameNoExt = path.split('/').pop().replace(/\.xml$/i, "");
+        let kind = "xml";
+        let resRef = `R.xml.${fileNameNoExt}`;
+
+        if (lower.includes("/layout")) {
+            kind = "layout";
+            resRef = `R.layout.${fileNameNoExt}`;
+        } else if (lower.includes("/values")) {
+            kind = "values";
+            resRef = `values/${fileNameNoExt}`;
+        } else if (lower.includes("/drawable")) {
+            kind = "drawable";
+            resRef = `R.drawable.${fileNameNoExt}`;
+        } else if (lower.includes("/menu")) {
+            kind = "menu";
+            resRef = `R.menu.${fileNameNoExt}`;
+        }
+
+        const ids = [];
+        const idRegex = /android:id\s*=\s*["']@\+?id\/([a-zA-Z0-9_]+)["']/g;
+        let im;
+        while ((im = idRegex.exec(text)) !== null) {
+            if (!ids.includes(im[1])) ids.push(im[1]);
+        }
+
+        const strings = [];
+        const strRegex = /<string\s+name\s*=\s*["']([a-zA-Z0-9_]+)["']/g;
+        let sm;
+        while ((sm = strRegex.exec(text)) !== null) {
+            if (!strings.includes(sm[1])) strings.push(sm[1]);
+        }
+
+        this.androidModel.xmlResources.push({ kind, resRef, ids, strings, filePath: path });
+
+        const resBoxId = `res:${resRef}:${path}`;
+        this.addBox(new ConceptualBox(resBoxId, "android_resource", "android_ui", "APK_PAYLOAD", {
+            name: resRef,
+            filePath: path,
+            line: 1,
+            signature: `Android Resource ${resRef} (${ids.length} IDs, ${strings.length} strings)`,
+            snippet: text.slice(0, 380),
+            packaging: "PACKAGED_RESOURCE"
+        }));
+        this.addTether(fileBoxId, resBoxId, 0.85, "defines");
+    }
+
     _parseAndroidManifest(path, text, fileBoxId) {
         const pkgMatch = text.match(/package\s*=\s*["']([^"']+)["']/);
         if (pkgMatch) this.androidModel.packageName = pkgMatch[1];
+
+        const appCatMatch = text.match(/android:appCategory\s*=\s*["']([^"']+)["']/);
+        if (appCatMatch) this.androidModel.appCategory = appCatMatch[1];
 
         const minSdkMatch = text.match(/android:minSdkVersion\s*=\s*["'](\d+)["']/);
         if (minSdkMatch) this.androidModel.minSdk = minSdkMatch[1];
@@ -605,6 +681,8 @@ class NeuroSymbolicEngine {
             const exportedMatch = attrs.match(/android:exported\s*=\s*["'](true|false)["']/);
             const fgsMatch = attrs.match(/android:foregroundServiceType\s*=\s*["']([^"']+)["']/);
             const cfgMatch = attrs.match(/android:configChanges\s*=\s*["']([^"']+)["']/);
+            const orientMatch = attrs.match(/android:screenOrientation\s*=\s*["']([^"']+)["']/);
+            const resizeMatch = attrs.match(/android:resizeableActivity\s*=\s*["'](true|false)["']/);
             const hasIntentFilter = body.includes("<intent-filter");
             const isLauncher = body.includes("android.intent.category.LAUNCHER") || body.includes("android.intent.action.MAIN");
             const lineNum = text.slice(0, cm.index).split('\n').length;
@@ -616,6 +694,8 @@ class NeuroSymbolicEngine {
                 exported: exportedMatch ? exportedMatch[1] : null,
                 foregroundServiceType: fgsMatch ? fgsMatch[1] : null,
                 configChanges: cfgMatch ? cfgMatch[1] : null,
+                screenOrientation: orientMatch ? orientMatch[1] : null,
+                resizeableActivity: resizeMatch ? resizeMatch[1] : null,
                 hasIntentFilter,
                 isLauncher,
                 filePath: path,
@@ -643,6 +723,18 @@ class NeuroSymbolicEngine {
                     code: `<activity android:name="${rawName}">`,
                     reason: "Game/Native Activity lacks android:configChanges=\"orientation|screenSize|screenLayout|keyboardHidden\", causing Android to destroy and recreate the Activity & ANativeWindow on rotation or multi-window resize.",
                     fixSuggestion: `android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"`
+                });
+            }
+
+            if (kind === "activity" && (orientMatch || (resizeMatch && resizeMatch[1] === "false")) && this.androidModel.appCategory !== "game") {
+                this.auditFindings.push({
+                    severity: "MEDIUM",
+                    category: "Android 17+ Large-Screen Orientation/Resize Restriction",
+                    filePath: path,
+                    line: lineNum,
+                    code: `<activity android:name="${rawName}"${orientMatch ? ` android:screenOrientation="${orientMatch[1]}"` : ""}>`,
+                    reason: "Android 16/17+ ignores fixed screenOrientation and resizeableActivity=\"false\" on large screens (sw >= 600dp) unless <application android:appCategory=\"game\"> is declared.",
+                    fixSuggestion: `// Add android:appCategory="game" on <application> in AndroidManifest.xml`
                 });
             }
 
@@ -706,6 +798,14 @@ class NeuroSymbolicEngine {
 
         if (/prefab\s*[= ]\s*true/.test(text)) {
             this.androidModel.prefabEnabled = true;
+        }
+
+        if (/compose\s*[= ]\s*true/.test(text)) {
+            this.androidModel.composeEnabled = true;
+        }
+
+        if (/viewBinding\s*[= ]\s*true/.test(text)) {
+            this.androidModel.viewBindingEnabled = true;
         }
 
         const legacyPkgMatch = text.match(/useLegacyPackaging\s*[= ]\s*(true|false)/);
@@ -816,7 +916,9 @@ class NeuroSymbolicEngine {
         const pkgRegex = /^\s*package\s+([a-zA-Z0-9_.]+)/;
         const clsRegex = /\b(?:class|object)\s+([a-zA-Z0-9_]+)/;
         const loadLibRegex = /System\.loadLibrary\s*\(\s*["']([^"']+)["']\s*\)/;
+        const loadPathRegex = /System\.load\s*\(\s*([^)]+)\)/;
         const javaNativeRegex = /\b(?:public|private|protected)?\s*(?:static\s+)?(?:final\s+)?(?:native|external)\s+(?:fun\s+)?[a-zA-Z0-9_<>\[\],\s]+\s+([a-zA-Z0-9_]+)\s*\(/;
+        const resRefRegex = /\bR\.(layout|id|string|drawable|menu|xml)\.([a-zA-Z0-9_]+)/g;
 
         for (let i = 0; i < lines.length; i++) {
             const trimmed = lines[i].trim();
@@ -826,7 +928,26 @@ class NeuroSymbolicEngine {
             if (pm) currentPackage = pm[1];
 
             const cm = trimmed.match(clsRegex);
-            if (cm) currentClass = cm[1];
+            if (cm) {
+                currentClass = cm[1];
+                if (trimmed.includes("ViewModel")) {
+                    this.androidModel.viewModels.push({ name: currentClass, filePath: path, line: i + 1 });
+                }
+            }
+
+            if (trimmed.startsWith("@Composable") && i + 1 < lines.length) {
+                const nextLine = lines[i + 1].trim();
+                const fnMatch = nextLine.match(/\bfun\s+([a-zA-Z0-9_]+)/);
+                if (fnMatch) {
+                    this.androidModel.composables.push({ name: fnMatch[1], filePath: path, line: i + 2 });
+                }
+            }
+
+            let rm;
+            resRefRegex.lastIndex = 0;
+            while ((rm = resRefRegex.exec(trimmed)) !== null) {
+                this.androidModel.resourceRefs.push({ ref: `R.${rm[1]}.${rm[2]}`, filePath: path, line: i + 1 });
+            }
 
             const lm = trimmed.match(loadLibRegex);
             if (lm) {
@@ -835,10 +956,35 @@ class NeuroSymbolicEngine {
                 this.androidModel.loadedLibraries.push({
                     libName,
                     soFileName,
+                    loadKind: "loadLibrary",
                     filePath: path,
                     line: i + 1
                 });
                 this.lexicon.learn(soFileName, `Native library loaded at runtime via System.loadLibrary("${libName}") in ${path}:${i + 1}.`, "android_packaging", [libName, "loadlibrary"], [], path);
+            }
+
+            const lpm = trimmed.match(loadPathRegex);
+            if (lpm) {
+                const rawArg = lpm[1].trim();
+                const baseName = rawArg.split('/').pop().replace(/["')]/g, "") || "dynamic.so";
+                this.androidModel.loadedLibraries.push({
+                    libName: baseName.replace(/^lib/, "").replace(/\.so$/, ""),
+                    soFileName: baseName,
+                    loadKind: "load",
+                    filePath: path,
+                    line: i + 1
+                });
+                if (!text.includes("setReadOnly")) {
+                    this.auditFindings.push({
+                        severity: "HIGH",
+                        category: "Android 17+ Safer DCL (System.load Read-Only)",
+                        filePath: path,
+                        line: i + 1,
+                        code: trimmed,
+                        reason: "Apps targeting Android 17 (API 37+) must call file.setReadOnly() (chmod 0444) on dynamically loaded native libraries before System.load(), or ART throws UnsatisfiedLinkError.",
+                        fixSuggestion: `soFile.setReadOnly();\n${trimmed}`
+                    });
+                }
             }
 
             const nm = trimmed.match(javaNativeRegex);
@@ -909,20 +1055,75 @@ class NeuroSymbolicEngine {
             if (!fullText.includes("max-page-size=16384") && !fullText.includes("16384")) {
                 this.auditFindings.push({
                     severity: "HIGH",
-                    category: "Android 15/16+ 16KB ELF Page Alignment",
+                    category: "Android 15-17+ 16KB ELF Page Alignment",
                     filePath: path,
                     line: 1,
                     code: path.split('/').pop(),
-                    reason: "Missing '-Wl,-z,max-page-size=16384' linker flag required by Google Play and Android 15/16+ 16 KB page-size kernels.",
+                    reason: "Missing '-Wl,-z,max-page-size=16384' linker flag required by Google Play and Android 15-17+ 16 KB page-size kernels.",
                     fixSuggestion: `target_link_options(\${PROJECT_NAME} PRIVATE "-Wl,-z,max-page-size=16384")`
                 });
             }
         }
 
         if (ext === "java" || ext === "kt") {
+            let inComposable = false;
             for (let i = 0; i < lines.length; i++) {
                 const t = lines[i].trim();
                 if (!t || t.startsWith("//") || t.startsWith("*")) continue;
+
+                if (t.startsWith("@Composable")) {
+                    inComposable = true;
+                } else if (t.startsWith("fun ") && !lines[Math.max(0, i - 1)].includes("@Composable")) {
+                    inComposable = false;
+                }
+
+                if (inComposable && /\b(?:viewModelScope|lifecycleScope|GlobalScope)\.launch\s*\{/.test(t)) {
+                    this.auditFindings.push({
+                        severity: "HIGH",
+                        category: "Jetpack Compose Recomposition Side-Effect Hazard",
+                        filePath: path,
+                        line: i + 1,
+                        code: t,
+                        reason: "Launching a coroutine directly inside a @Composable body triggers duplicate executions on every recomposition; wrap it inside LaunchedEffect(key).",
+                        fixSuggestion: `LaunchedEffect(Unit) {\n    ${t}\n}`
+                    });
+                }
+
+                if (t.includes("GlobalScope.")) {
+                    this.auditFindings.push({
+                        severity: "MEDIUM",
+                        category: "Unstructured Kotlin GlobalScope Usage",
+                        filePath: path,
+                        line: i + 1,
+                        code: t,
+                        reason: "GlobalScope leaks coroutines across Activity/ViewModel lifecycles; use lifecycleScope or viewModelScope.",
+                        fixSuggestion: t.replace("GlobalScope.", "lifecycleScope.")
+                    });
+                }
+
+                if (t.includes("registerReceiver(") && !fullText.includes("RECEIVER_EXPORTED") && !fullText.includes("RECEIVER_NOT_EXPORTED")) {
+                    this.auditFindings.push({
+                        severity: "CRITICAL",
+                        category: "Android 14+ Missing RECEIVER_EXPORTED / NOT_EXPORTED Flag",
+                        filePath: path,
+                        line: i + 1,
+                        code: t,
+                        reason: "Dynamic Context.registerReceiver() on targetSdk 34+ throws SecurityException unless Context.RECEIVER_EXPORTED or Context.RECEIVER_NOT_EXPORTED is specified.",
+                        fixSuggestion: `ContextCompat.registerReceiver(this, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);`
+                    });
+                }
+
+                if (t.includes("PendingIntent.get") && !t.includes("FLAG_IMMUTABLE") && !t.includes("FLAG_MUTABLE")) {
+                    this.auditFindings.push({
+                        severity: "CRITICAL",
+                        category: "Android 12+ Missing PendingIntent Mutability Flag",
+                        filePath: path,
+                        line: i + 1,
+                        code: t,
+                        reason: "PendingIntent creation on targetSdk 31+ throws IllegalArgumentException without PendingIntent.FLAG_IMMUTABLE or FLAG_MUTABLE.",
+                        fixSuggestion: t.replace(/(\)\s*;?)$/, " /* add PendingIntent.FLAG_IMMUTABLE */$1")
+                    });
+                }
 
                 if (t.includes("startForeground(")) {
                     const hasFgsType = this.androidModel.components.some(c => c.kind === "service" && c.foregroundServiceType);
@@ -946,7 +1147,7 @@ class NeuroSymbolicEngine {
                         filePath: path,
                         line: i + 1,
                         code: t,
-                        reason: "Activity.onBackPressed() is deprecated in API 33+ and breaks Android 14/15/16 Predictive Back gestures; migrate to OnBackPressedDispatcher.",
+                        reason: "Activity.onBackPressed() is deprecated in API 33+ and breaks Android 14-17 Predictive Back gestures; migrate to OnBackPressedDispatcher.",
                         fixSuggestion: `getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) { @Override public void handleOnBackPressed() { /* handle back */ } });`
                     });
                 }
@@ -1003,7 +1204,7 @@ class NeuroSymbolicEngine {
                     filePath: path,
                     line: i + 1,
                     code: trimmed,
-                    reason: "NDK r27+ removes compile-time PAGE_SIZE and Android 15/16 devices use 16 KB (16384) pages. Replace hardcoded 4096/0x1000/PAGE_SIZE with sysconf(_SC_PAGESIZE).",
+                    reason: "NDK r27+ removes compile-time PAGE_SIZE and Android 15-17 devices use 16 KB (16384) pages. Replace hardcoded 4096/0x1000/PAGE_SIZE with sysconf(_SC_PAGESIZE).",
                     fixSuggestion: trimmed.replace(/\b(?:4096|0x1000|PAGE_SIZE)\b/g, "(size_t)sysconf(_SC_PAGESIZE)")
                 });
             }
@@ -1141,8 +1342,24 @@ class NeuroSymbolicEngine {
             }
         }
 
-        // 3. Link System.loadLibrary(...) calls to CMake/Android.mk native .so targets
+        // 3. Link R.layout.* / R.id.* references to XML resource files
+        for (const rRef of this.androidModel.resourceRefs) {
+            const parts = rRef.ref.split('.');
+            const kind = parts[1];
+            const name = parts[2];
+            const xmlMatch = this.androidModel.xmlResources.find(x =>
+                (kind === "layout" && x.resRef === rRef.ref) ||
+                (kind === "id" && x.ids.includes(name)) ||
+                (kind === "string" && x.strings.includes(name))
+            );
+            if (xmlMatch) {
+                this.addTether(`file:${rRef.filePath}`, `res:${xmlMatch.resRef}:${xmlMatch.filePath}`, 0.85, "binds_resource");
+            }
+        }
+
+        // 4. Link System.loadLibrary(...) calls to CMake/Android.mk native .so targets
         for (const lib of this.androidModel.loadedLibraries) {
+            if (lib.loadKind === "load") continue;
             const target = this.androidModel.nativeTargets.find(t => t.targetName === lib.libName);
             if (target) {
                 this.addTether(`file:${lib.filePath}`, `nativelib:${target.buildFile}:${target.targetName}`, 0.95, "loads_native_lib");
@@ -1159,7 +1376,7 @@ class NeuroSymbolicEngine {
             }
         }
 
-        // 4. Mark C/C++ files compiled into native .so targets & link Prefab AAR packages
+        // 5. Mark C/C++ files compiled into native .so targets & link Prefab AAR packages
         for (const target of this.androidModel.nativeTargets) {
             const libBoxId = `nativelib:${target.buildFile}:${target.targetName}`;
             for (const pkg of target.prefabPackages) {
@@ -1178,7 +1395,7 @@ class NeuroSymbolicEngine {
             }
         }
 
-        // 5. Bind Java/Kotlin native methods to Static Java_* OR Dynamic RegisterNatives C/C++ implementations
+        // 6. Bind Java/Kotlin native methods to Static Java_* OR Dynamic RegisterNatives C/C++ implementations
         for (const jniMethod of this.androidModel.javaNativeMethods) {
             const expectedKey = jniMethod.expectedJniSymbol.toLowerCase();
             const fallbackSuffix = `_${jniMethod.methodName.toLowerCase()}`;
@@ -1230,7 +1447,7 @@ class NeuroSymbolicEngine {
             }
         }
 
-        // 6. Cross-check Reverse-JNI Lookups (FindClass / GetMethodID) against R8 / ProGuard keep rules
+        // 7. Cross-check Reverse-JNI Lookups (FindClass / GetMethodID) against R8 / ProGuard keep rules
         for (const rev of this.androidModel.reverseJniLookups) {
             const dottedClass = rev.target.replace(/\//g, ".");
             const shortClass = dottedClass.split('.').pop();
@@ -1253,7 +1470,7 @@ class NeuroSymbolicEngine {
             }
         }
 
-        // 7. Propagate Runtime Reachability from Android & Native Entry Points
+        // 8. Propagate Runtime Reachability from Android & Native Entry Points
         this.runtimeReachable.clear();
         const queue = [];
         for (const [symKey, node] of this.callGraph.entries()) {
@@ -1368,7 +1585,7 @@ class NeuroSymbolicEngine {
     analyzeAndroidPackagingAndOperation() {
         if (this.fileSummaries.size === 0) {
             return {
-                html: `<strong>Android APK Packaging & Runtime Operation Inspector:</strong><br>No workspace mounted yet. Click <strong>Open Workspace</strong> to inspect AndroidManifest.xml, Gradle/Version Catalogs, CMake/Prefab native libraries, R8 ProGuard rules, and the end-to-end runtime boot flow.`,
+                html: `<strong>Android APK Packaging & Runtime Operation Inspector:</strong><br>No workspace mounted yet. Click <strong>Open Workspace</strong> to inspect AndroidManifest.xml, Gradle/Version Catalogs, Jetpack Compose/XML UI, CMake/Prefab native libraries, R8 ProGuard rules, and the end-to-end runtime boot flow.`,
                 synthesizedDiff: null
             };
         }
@@ -1389,12 +1606,16 @@ class NeuroSymbolicEngine {
             : "Not declared";
         const abis = am.abiFilters.length > 0 ? am.abiFilters.join(", ") : "Default NDK ABIs (verify arm64-v8a)";
         const vcVersions = Object.entries(am.versionCatalog.versions).slice(0, 5).map(([k, v]) => `${k}=${v}`).join(", ");
+        const uiStack = am.composables.length > 0
+            ? `Jetpack Compose (${am.composables.length} @Composable, ${am.viewModels.length} ViewModel)`
+            : `XML Views / SurfaceView (${am.xmlResources.length} XML res${am.viewBindingEnabled ? ", ViewBinding" : ""})`;
 
-        let html = `<strong>Android Dependent Files, APK Packaging & Modern SDK Architecture:</strong><br>`;
+        let html = `<strong>Android Dependent Files, APK Packaging & Full-Stack SDK Architecture:</strong><br>`;
         html += `• <strong>App Identity & Toolchain:</strong> <code>${pkgId}</code> | ${sdkRange}${am.ndkVersion ? ` | NDK <code>${am.ndkVersion}</code>` : ""} | ABIs: <code>${abis}</code><br>`;
         if (vcVersions) {
             html += `• <strong>Version Catalog (<code>libs.versions.toml</code>):</strong> <code>${vcVersions}</code><br>`;
         }
+        html += `• <strong>UI & Architecture Layer:</strong> ${uiStack}<br>`;
         html += `• <strong>APK Payload Breakdown:</strong><br>`;
         html += `&nbsp;&nbsp;1. <code>AndroidManifest.xml</code> (${am.manifestFiles.length} file): ${am.components.length} components (${am.components.map(c => `<code>&lt;${c.kind}&gt; ${c.shortName}${c.isLauncher ? " [LAUNCHER]" : ""}${c.foregroundServiceType ? ` [FGS:${c.foregroundServiceType}]` : ""}</code>`).join(", ") || "none"})<br>`;
         html += `&nbsp;&nbsp;2. <code>classes.dex</code>: ${dexFiles} Java/Kotlin source files (${am.javaNativeMethods.length} <code>native</code> JNI declarations; ${am.proguardRules.length} R8 <code>-keep</code> rules)<br>`;
@@ -1438,7 +1659,7 @@ class NeuroSymbolicEngine {
             if (fileFindings.length > 0) {
                 html += `• <span style="color:#ff7b72;"><strong>Android & Alignment Findings (${fileFindings.length}):</strong></span> ${fileFindings.slice(0, 3).map(f => `[${f.severity}] L${f.line}: ${f.category}`).join("; ")}`;
             } else if (!isAndroidBuild) {
-                html += `• <strong>Android & ABI Status:</strong> Clean (0 JNI, 16KB page, LP64, or pointer truncation issues flagged).`;
+                html += `• <strong>Android & ABI Status:</strong> Clean (0 JNI, Compose/Lifecycle, 16KB page, LP64, or pointer truncation issues flagged).`;
             }
 
             return { html, synthesizedDiff: null };
@@ -1470,7 +1691,7 @@ class NeuroSymbolicEngine {
     runFullPortAudit() {
         if (this.boxes.size === 0) {
             return {
-                html: `<strong>Modern Android & Port Perfection Audit:</strong><br>No workspace mounted yet. Click <strong>Open Workspace</strong> to scan Manifest/Gradle/R8 rules, JNI static & RegisterNatives bindings, 16 KB page-size alignment, and ARM64 LP64/MTE safety.`,
+                html: `<strong>Modern Android & Port Perfection Audit:</strong><br>No workspace mounted yet. Click <strong>Open Workspace</strong> to scan Manifest/Gradle/R8 rules, Compose/Lifecycle safety, JNI static & RegisterNatives bindings, 16 KB page-size alignment, and ARM64 LP64/MTE safety.`,
                 synthesizedDiff: null
             };
         }
@@ -1485,7 +1706,7 @@ class NeuroSymbolicEngine {
         const mipsAsmFiles = allSumsCount(allSummaries, s => s.domain === "mips_asm");
 
         let html = `<strong>Modern Android & Port Perfection Audit (${runtimeFiles} runtime/build files scanned, ${offlineFiles} offline tool files isolated):</strong><br>`;
-        html += `• <strong>Severity Breakdown:</strong> <span style="color:#ff7b72;">${crit.length} CRITICAL</span> (Pointer Truncation / Unresolved JNI / Missing exported), <span style="color:#d29922;">${high.length} HIGH</span> (16KB Page Size / R8 Strip / LP64 / Scoped Storage), <span style="color:#58a6ff;">${med.length} MEDIUM</span> (Predictive Back / DMA Alignment / ConfigChanges).<br>`;
+        html += `• <strong>Severity Breakdown:</strong> <span style="color:#ff7b72;">${crit.length} CRITICAL</span> (Pointer Truncation / Unresolved JNI / Missing exported/receiver flag), <span style="color:#d29922;">${high.length} HIGH</span> (16KB Page Size / Safer DCL / R8 Strip / Compose Side-Effect / LP64), <span style="color:#58a6ff;">${med.length} MEDIUM</span> (Predictive Back / Large-Screen / DMA Alignment).<br>`;
         if (mipsAsmFiles > 0) {
             html += `• <strong>Architecture Completeness:</strong> Detected <code>${mipsAsmFiles}</code> raw MIPS <code>.s</code> assembly files requiring C/ARM64 decompilation parity for full <code>aarch64</code> execution.<br>`;
         }
@@ -1498,7 +1719,7 @@ class NeuroSymbolicEngine {
             }
             html += `</div>`;
         } else {
-            html += `• Zero Android Manifest/R8, JNI binding, 16 KB page-size, LP64, or pointer truncation violations detected across scanned runtime files.`;
+            html += `• Zero Android Manifest/R8, Compose/Lifecycle, JNI binding, 16 KB page-size, LP64, or pointer truncation violations detected across scanned runtime files.`;
         }
 
         let synthesizedDiff = null;
