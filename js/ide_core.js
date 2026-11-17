@@ -1,4 +1,4 @@
-let workspaceFiles = {}; // Stores File objects for on-demand reading
+let workspaceFiles = {}; 
 let chatHistory = [];
 let lexiconState = {
     dictionary: {
@@ -39,9 +39,8 @@ function handleFolderSelect(event) {
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
             const relPath = file.webkitRelativePath || file.name;
-            workspaceFiles[relPath] = file; // Store reference for lazy loading
+            workspaceFiles[relPath] = file;
 
-            // Build tree dictionary
             const parts = relPath.split('/');
             let curr = root;
             parts.forEach((part, idx) => {
@@ -83,10 +82,10 @@ function renderTree(node, parentElement, prefix) {
             li.style.fontWeight = '600';
             li.style.color = 'var(--text-muted)';
             
-            const subUl = document.createElement('ul0');
+            const subUl = document.createElement('ul'); // Fixed from 'ul0' to 'ul'
             subUl.style.listStyle = 'none';
             subUl.style.paddingLeft = '12px';
-            subUl.style.display = 'none'; // Collapsed by default for 1400+ file performance
+            subUl.style.display = 'none'; 
             
             li.onclick = (e) => {
                 e.stopPropagation();
@@ -140,7 +139,6 @@ function parseAndLearnReference(filename, text) {
     const lines = text.split('\n');
     let domain = filename.toLowerCase().includes('n64') ? 'n64_hardware' : 'reference_doc';
     
-    // Sample lines to extract technical terms and definitions
     for (let i = 0; i < Math.min(lines.length, 5000); i++) {
         const line = lines[i].trim();
         if (line.length > 5 && line.length < 100 && (line.includes(':') || line.includes('-'))) {
