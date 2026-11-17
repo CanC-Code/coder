@@ -1174,7 +1174,16 @@ class NeuroSymbolicEngine {
 
         if (!["c", "cpp", "cc", "cxx", "h", "hpp"].includes(ext)) return;
 
-        const ptrTruncRegex = /\(\s*(?:u32|s32|uint32_t|int32_t|unsigned\s+int|int)\s*\)\s*(?:&?[a-zA-Z_][a-zA-Z0-9_]*(?:->|\.)?[a-zA-Z0-9_]*)/;
+        // Build per-file symbol table of actual pointer-typed variables (*) so integer ROM/file offsets
+        // (e.g., assetOffset, romOffset, bufferSize) are NEVER misflagged as 64-bit pointers.
+        const pointerIdentifiers = new Set();
+        const ptrDeclRegex = /\b(?:void|char|u8|s8|u16|s16|u32|s32|u64|s64|uint8_t|int8_t|uint16_t|int16_t|uint32_t|int32_t|uint64_t|int64_t|uintptr_t|size_t|float|double|Gfx|Vtx|Mtx|OSTask|OSMesg|OSThread|OSPiHandle|ALHeap|struct\s+[a-zA-Z_][a-zA-Z0-9_]*|[A-Z][a-zA-Z0-9_]+)\s*\*+\s*(?:const\s+|restrict\s+)?([a-zA-Z_][a-zA-Z0-9_]*)/g;
+        let pdm;
+        while ((pdm = ptrDeclRegex.exec(fullText)) !== null) {
+            pointerIdentifiers.add(pdm[1]);
+        }
+        const intOffsetBlocklist = /(?:offset|size|len|length|count|index|idx|num|id|flags|mask|stride|width|height|pitch|format|type|state|mode|status|timer|frame|tick|seed|crc|hash|volume|pan|freq|rate|channel|voice|seq|bank|track|rom|vrom|segment|page|sector|block|tag|key|val|value|param|arg|res|ret|err|code|cmd|op)$/i;
+        const ptrCastRegex = /\(\s*(?:u32|s32|uint32_t|int32_t|unsigned\s+int|int)\s*\)\s*(&?[a-zA-Z_][a-zA-Z0-9_]*(?:->[a-zA-Z_][a-zA-Z0-9_]*)?)/g;
         const longFieldRegex = /^\s*(?:unsigned\s+)?long\s+[a-zA-Z_][a-zA-Z0-9_*\[\]\s]*;/;
         const unalignedCastRegex = /\*\s*\(\s*(?:u32|s32|u16|s16|uint32_t|uint16_t)\s*\*\s*\)/;
         const dmaBufferRegex = /\b(?:Gfx|Vtx|Mtx|OSTask|OSMesg)\s+[a-zA-Z_][a-zA-Z0-9_]*\s*\[/;
@@ -1190,15 +1199,34 @@ class NeuroSymbolicEngine {
             if (/^(?:for|while)\s*\(/.test(trimmed)) loopDepth++;
             if (loopDepth > 0 && trimmed === "}") loopDepth = Math.max(0, loopDepth - 1);
 
-            if (ptrTruncRegex.test(trimmed) && (trimmed.includes("ptr") || trimmed.includes("addr") || trimmed.includes("buf") || trimmed.includes("&"))) {
+            ptrCastRegex.lastIndex = 0;
+            let pcm;
+            const confirmedPtrExprs = [];
+            while ((pcm = ptrCastRegex.exec(trimmed)) !== null) {
+                const expr = pcm[1];
+                const isAddressOf = expr.startsWith("&");
+                const baseIdent = expr.replace(/^&/, "").split("->")[0];
+                const isExplicitPtr = pointerIdentifiers.has(baseIdent);
+                const hasPtrNaming = /(?:^|_)(?:ptr|addr|address|buf|buffer|mem|heap|stack|dst|src|data|handle|win|window|surface|ctx|context)(?:_|$)/i.test(baseIdent) && !intOffsetBlocklist.test(baseIdent);
+                if ((isAddressOf || isExplicitPtr || hasPtrNaming) && !intOffsetBlocklist.test(baseIdent)) {
+                    confirmedPtrExprs.push(expr);
+                }
+            }
+            if (confirmedPtrExprs.length > 0) {
+                let fixedLine = trimmed;
+                for (const expr of confirmedPtrExprs) {
+                    const escapedExpr = expr.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                    const exactCastRe = new RegExp(`\\(\\s*(?:u32|s32|uint32_t|int32_t|unsigned\\s+int|int)\\s*\\)\\s*${escapedExpr}`, "g");
+                    fixedLine = fixedLine.replace(exactCastRe, `(uintptr_t)${expr}`);
+                }
                 this.auditFindings.push({
                     severity: "CRITICAL",
                     category: "ARM64 Pointer Truncation / MTE Hazard",
                     filePath: path,
                     line: i + 1,
                     code: trimmed,
-                    reason: "Casting pointer/address to 32-bit integer truncates upper 32 bits on aarch64 and strips ARM64 MTE/TBI pointer tags, causing immediate SIGSEGV.",
-                    fixSuggestion: trimmed.replace(/\(\s*(?:u32|s32|uint32_t|int32_t|unsigned\s+int|int)\s*\)/, "(uintptr_t)")
+                    reason: `Confirmed pointer/address expression (${confirmedPtrExprs.join(", ")}) cast to 32-bit integer; truncates upper 32 bits on aarch64 and strips ARM64 MTE/TBI pointer tags, causing immediate SIGSEGV.`,
+                    fixSuggestion: fixedLine
                 });
             }
 
