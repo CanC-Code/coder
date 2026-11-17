@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Coder - Android & N64 Porting Neural IDE</title>
+    <title>Coder - Android & N64 Porting Neuro-Symbolic IDE</title>
     <link rel="stylesheet" href="css/theme.css">
 </head>
 <body>
@@ -11,13 +11,13 @@
         <!-- Sidebar File Explorer & Domain Controls -->
         <div class="sidebar">
             <div class="sidebar-header" style="display: flex; flex-direction: column; gap: 8px;">
-                <span>Android & N64 Workspace (1400+ Ready)</span>
+                <span>Android & N64 Workspace</span>
                 <div style="display: flex; gap: 6px; flex-wrap: wrap;">
                     <label style="flex: 1; background: var(--accent-blue); color: white; padding: 6px 8px; border-radius: 4px; font-size: 11px; text-align: center; cursor: pointer;">
                         Open Workspace <input type="file" id="folder-input" webkitdirectory directory multiple style="display: none;" onchange="handleFolderSelect(event)">
                     </label>
-                    <label style="flex: 1; background: var(--accent-green); color: white; padding: 6px 8px; border-radius: 4px; font-size: 11px; text-align: center; cursor: pointer;" title="Ingest massive N64 manuals">
-                        Ingest Manuals <input type="file" id="manuals-input" multiple accept=".txt,.md,.h,.cpp,.java,.djvu" style="display: none;" onchange="handleManualsIngest(event)">
+                    <label style="flex: 1; background: var(--accent-green); color: white; padding: 6px 8px; border-radius: 4px; font-size: 11px; text-align: center; cursor: pointer;" title="Ingest N64 manuals or SDK docs">
+                        Ingest Manuals <input type="file" id="manuals-input" multiple accept=".txt,.md,.h,.cpp,.java" style="display: none;" onchange="handleManualsIngest(event)">
                     </label>
                 </div>
             </div>
@@ -41,7 +41,7 @@
             <div class="editor-workspace">
                 <div class="diff-box">
                     <div class="diff-header" id="diff-file-title">Select a file from your workspace</div>
-                    <div class="diff-content" id="diff-view">// Code or ingested N64 hardware reference text will appear here upon selection.</div>
+                    <div class="diff-content" id="diff-view">// Code, ingested N64 manual sections, or synthesized diffs will appear here.</div>
                 </div>
                 <div style="display: flex; justify-content: flex-end; gap: 10px;">
                     <button class="btn-approve" onclick="approveAndSave()">Approve & Commit NDK/JNI Fix</button>
@@ -53,21 +53,22 @@
         <div class="chat-panel">
             <div class="panel-header">N64 to Android Porting Agent</div>
             <div class="chat-messages" id="chat-messages">
-                <div class="message agent">System online. Optimized for large-scale Android aarch64 codebases and N64 manual indexing. Ready for workspace mounting.</div>
+                <div class="message agent">System online. Neuro-Symbolic Conceptual Graph, Bidirectional Lexicon, and BM25 Call-Graph Engine ready. Mount your project folder or ingest N64 manuals to begin.</div>
             </div>
             <div class="chat-input-area">
-                <input type="text" id="user-input" placeholder="Ask about N64 display lists, RDP microcode, or JNI..." onkeypress="handleKey(event)">
+                <input type="text" id="user-input" placeholder="Trace symbols, diagnose crashes, or query N64 specs..." onkeypress="handleKey(event)">
                 <button class="btn-approve" onclick="sendGoal()">Send</button>
             </div>
         </div>
 
         <!-- Status Bar -->
         <div class="statusbar">
-            <span id="status-text">Domain: Android aarch64 & N64 Porting</span>
-            <span>Graph Threshold (tau): 0.4 | Lexical Engine: Active</span>
+            <span>Domain: Android aarch64 & N64 Porting</span>
+            <span id="status-metrics">Boxes: 0 | Tethers: 0 | Lexicon: 0 | tau: 0.35</span>
         </div>
     </div>
 
+    <script src="js/neuro_symbolic_engine.js"></script>
     <script src="js/ide_core.js"></script>
 </body>
 </html>

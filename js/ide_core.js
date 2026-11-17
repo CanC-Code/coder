@@ -1,15 +1,16 @@
-let workspaceFiles = {}; 
+const engine = new NeuroSymbolicEngine(0.35);
+let workspaceFiles = {};   // relPath -> File
+let patchedContents = {};  // relPath -> string (in-memory approved patches)
+let currentOpenFile = null;
+let pendingDiff = null;
 let chatHistory = [];
-let lexiconState = {
-    dictionary: {
-        "bka_install_segv_handler": { definition: "Low-level signal handler in DKR native code intercepting segmentation faults.", domain: "n64_native" },
-        "bkaservice": { definition: "Android background service handling IPC and lifecycle integration for dkrwrapper.", domain: "android_wrapper" },
-        "segvdump": { definition: "Crash trace signature capturing memory access violations in aarch64 runtime.", domain: "debugging" }
-    },
-    thesaurus: {
-        "segv": { synonyms: ["segmentation fault", "memory violation", "segvdump"], semantic_cluster: ["crash", "signal", "handler"] }
+
+function updateStatusBar() {
+    const statusRight = document.getElementById('status-metrics');
+    if (statusRight) {
+        statusRight.textContent = `Boxes: ${engine.boxes.size} | Tethers: ${engine.tethers.length} | Lexicon: ${Object.keys(engine.lexicon.dictionary).length} | tau: ${engine.tau}`;
     }
-};
+}
 
 function showProgress(text) {
     const pc = document.getElementById('progress-container');
@@ -30,10 +31,13 @@ async function handleFolderSelect(event) {
     if (!files || files.length === 0) return;
 
     workspaceFiles = {};
+    patchedContents = {};
+    engine.resetWorkspace();
+
     const fileTreeEl = document.getElementById('file-tree');
     fileTreeEl.innerHTML = '';
-    
-    showProgress(`Indexing file paths (${files.length} files)...`);
+
+    showProgress(`Indexing directory tree (${files.length} files)...`);
 
     const root = {};
     const fileArray = [];
@@ -55,53 +59,45 @@ async function handleFolderSelect(event) {
     }
 
     renderTree(root, fileTreeEl, "");
-    appendAgentMessage(`Mounted workspace with <strong>${files.length}</strong> files. Indexing DKR Android port structures...`);
+    appendAgentMessage(`Mounted workspace with <strong>${files.length}</strong> files. Running AST symbol extraction, call-graph linking, and BM25 indexing...`);
 
-    await ingestFilesInBatches(fileArray);
+    await ingestFilesInBatches(fileArray, false);
 }
 
-async function ingestFilesInBatches(fileArray) {
-    const batchSize = 20;
+async function ingestFilesInBatches(fileArray, isManual = false) {
+    const batchSize = 25;
     let processed = 0;
+    const textExtensions = new Set(["c", "cpp", "h", "hpp", "s", "asm", "java", "kt", "py", "js", "gradle", "xml", "mk", "cmake", "txt", "md", "sh", "json"]);
 
     for (let i = 0; i < fileArray.length; i += batchSize) {
         const batch = fileArray.slice(i, i + batchSize);
-        
+
         await Promise.all(batch.map(async item => {
+            const ext = item.path.split('.').pop().toLowerCase();
+            if (!isManual && !textExtensions.has(ext) && !item.path.endsWith("Makefile") && !item.path.endsWith("CMakeLists.txt")) {
+                return;
+            }
             try {
                 const text = await item.file.text();
-                parseCodeSymbols(item.path, text);
+                engine.ingestDocument(item.path, text, isManual);
             } catch (err) {}
         }));
 
         processed += batch.length;
-        showProgress(`Analyzing codebase: ${processed} / ${fileArray.length} files parsed...`);
-        await new Promise(r => setTimeout(r, 4));
+        showProgress(`${isManual ? "Ingesting manual" : "Indexing AST & Call-Graph"}: ${processed} / ${fileArray.length} files...`);
+        updateStatusBar();
+        await new Promise(r => setTimeout(r, 2));
     }
 
+    engine.finalizeCrossReferences();
+    updateStatusBar();
     hideProgress();
-    appendAgentMessage(`<strong>Codebase Fully Ingested:</strong> All ${fileArray.length} files analyzed. NDK symbols, JNI wrappers, and DKR components indexed.`);
-}
 
-function parseCodeSymbols(path, text) {
-    const lines = text.split('\n');
-    let domain = path.includes('/') ? path.split('/')[0] : "android_project";
-
-    lines.forEach(line => {
-        const trimmed = line.trim();
-        if (trimmed.includes('bka_install_segv_handler') || trimmed.includes('BkaService') || trimmed.includes('class ') || trimmed.includes('void ')) {
-            const parts = trimmed.split(/\s+/);
-            if (parts.length >= 2) {
-                const term = parts[1].replace(/[(:<]/g, '').toLowerCase();
-                if (term.length > 2 && term.length < 40) {
-                    lexiconState.dictionary[term] = {
-                        definition: `Found in ${path}: ${trimmed}`,
-                        domain: domain
-                    };
-                }
-            }
-        }
-    });
+    appendAgentMessage(
+        `<strong>Neuro-Symbolic Graph Ready:</strong> Indexed <strong>${engine.boxes.size}</strong> Conceptual Boxes, ` +
+        `<strong>${engine.tethers.length}</strong> dependency/call Tethers, and ` +
+        `<strong>${Object.keys(engine.lexicon.dictionary).length}</strong> bidirectional Lexicon concepts.`
+    );
 }
 
 function renderTree(node, parentElement, prefix) {
@@ -128,17 +124,17 @@ function renderTree(node, parentElement, prefix) {
             li.textContent = `📁 ${key}/`;
             li.style.fontWeight = '600';
             li.style.color = 'var(--text-muted)';
-            
+
             const subUl = document.createElement('ul');
             subUl.style.listStyle = 'none';
             subUl.style.paddingLeft = '12px';
-            subUl.style.display = 'none'; 
-            
+            subUl.style.display = 'none';
+
             li.onclick = (e) => {
                 e.stopPropagation();
                 subUl.style.display = subUl.style.display === 'none' ? 'block' : 'none';
             };
-            
+
             renderTree(val, subUl, prefix ? `${prefix}/${key}` : key);
             li.appendChild(subUl);
         }
@@ -147,58 +143,44 @@ function renderTree(node, parentElement, prefix) {
 }
 
 async function loadFileIntoEditor(path, fileObj) {
+    currentOpenFile = path;
+    pendingDiff = null;
     document.getElementById('diff-file-title').textContent = `${path} (Loading...)`;
     document.getElementById('diff-view').textContent = "// Reading file contents...";
 
     try {
-        const text = await fileObj.text();
-        document.getElementById('diff-file-title').textContent = `${path} (${text.length} bytes)`;
+        const text = patchedContents[path] !== undefined ? patchedContents[path] : await fileObj.text();
+        document.getElementById('diff-file-title').textContent = `${path} (${text.length} bytes)${patchedContents[path] ? " [PATCHED]" : ""}`;
         document.getElementById('diff-view').textContent = text;
     } catch (err) {
         document.getElementById('diff-view').textContent = `[!] Error reading file: ${err.message}`;
     }
 }
 
-function handleManualsIngest(event) {
+async function handleManualsIngest(event) {
     const files = event.target.files;
     if (!files || files.length === 0) return;
 
-    showProgress(`Ingesting manual(s)...`);
-
-    let processedCount = 0;
-    for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const text = e.target.result;
-            parseAndLearnReference(file.name, text);
-            processedCount++;
-            if (processedCount === files.length) {
-                hideProgress();
-                appendAgentMessage(`Ingested manual: <strong>${file.name}</strong> (${Math.round(text.length / 1024)} KB).`);
-            }
-        };
-        reader.readAsText(file);
-    }
+    const fileArray = Array.from(files).map(f => ({ path: f.name, file: f }));
+    appendAgentMessage(`Ingesting <strong>${fileArray.length}</strong> reference manual(s) into semantic memory and bidirectional lexicon...`);
+    await ingestFilesInBatches(fileArray, true);
 }
 
-function parseAndLearnReference(filename, text) {
-    const lines = text.split('\n');
-    let domain = filename.toLowerCase().includes('n64') ? 'n64_hardware' : 'reference_doc';
-    
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (line.length > 5 && line.length < 100 && (line.includes(':') || line.includes('-'))) {
-            const parts = line.split(/[:\-]/);
-            if (parts.length >= 2) {
-                const term = parts[0].trim().toLowerCase();
-                const definition = parts[1].trim();
-                if (term.length > 2 && term.length < 30) {
-                    lexiconState.dictionary[term] = { definition, domain };
-                }
-            }
-        }
-    }
+function renderSynthesizedDiff(diff) {
+    if (!diff) return;
+    pendingDiff = diff;
+    currentOpenFile = diff.filePath;
+
+    const titleEl = document.getElementById('diff-file-title');
+    const viewEl = document.getElementById('diff-view');
+    titleEl.textContent = `${diff.filePath}:${diff.line} — Synthesized Insertion (${diff.symbolName})`;
+
+    const escapeHtml = str => str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const beforeHtml = diff.contextBefore.map(l => `  ${escapeHtml(l)}`).join('\n');
+    const insertHtml = diff.insertionLines.map(l => `<span class="insertion">+ ${escapeHtml(l)}</span>`).join('');
+    const afterHtml = diff.contextAfter.map(l => `  ${escapeHtml(l)}`).join('\n');
+
+    viewEl.innerHTML = `${beforeHtml}\n${insertHtml}${afterHtml}`;
 }
 
 function appendAgentMessage(htmlText) {
@@ -208,7 +190,7 @@ function appendAgentMessage(htmlText) {
     agentMsg.innerHTML = htmlText;
     chatMessages.appendChild(agentMsg);
     chatMessages.scrollTop = chatMessages.scrollHeight;
-    
+
     chatHistory.push({ sender: 'agent', text: htmlText });
 }
 
@@ -224,60 +206,75 @@ function sendGoal() {
     if (!text) return;
 
     const chatMessages = document.getElementById('chat-messages');
-    
     const userMsg = document.createElement('div');
     userMsg.className = 'message user';
     userMsg.textContent = text;
     chatMessages.appendChild(userMsg);
     chatMessages.scrollTop = chatMessages.scrollHeight;
-    
-    chatHistory.push({ sender: 'user', text: text });
+
+    chatHistory.push({ sender: 'user', text });
     input.value = '';
 
     setTimeout(() => {
-        const queryLower = text.toLowerCase();
-        let responseHTML = "";
-
-        // Context-aware semantic intent routing for DKR port
-        if (queryLower.includes("port state") || queryLower.includes("status") || queryLower.includes("overview")) {
-            responseHTML = `<strong>DKR Port State (${com.dkrwrapper || 'com.dkrwrapper'}):</strong><br>` +
-                           `• <strong>Builds:</strong> Stable on <code>dkr-aarch64</code> branch (Gradle & Maven rate limits resolved).<br>` +
-                           `• <strong>Execution:</strong> Deployed via <code>rish</code>; local frame streaming active at <code>127.0.0.1:8081</code>.<br>` +
-                           `• <strong>Active Debugging:</strong> Investigating segmentation fault traces (<code>SEGVDUMP</code>) in <code>bka_install_segv_handler</code>.`;
-        } else if (queryLower.includes("segv") || queryLower.includes("crash") || queryLower.includes("bka")) {
-            responseHTML = `<strong>Crash Analysis (SEGVDUMP):</strong><br>` +
-                           `The segmentation fault originates around <code>bka_install_segv_handler</code> during native memory initialization. Recommend inspecting null pointer references in the NDK JNI bridge layer.`;
-        } else {
-            // Fallback to dictionary match or general response
-            let matchedTerm = null;
-            for (let term in lexiconState.dictionary) {
-                if (queryLower.includes(term) && term.length > 3) {
-                    matchedTerm = term;
-                    break;
-                }
-            }
-
-            if (matchedTerm) {
-                const entry = lexiconState.dictionary[matchedTerm];
-                responseHTML = `<strong>Lexicon Match [${matchedTerm}]:</strong><br>${entry.definition} <br><em>Domain:</em> ${entry.domain}`;
-            } else {
-                responseHTML = `<strong>Android NDK & N64 Porting Engine:</strong><br>Analyzed query against DKR repository structure. Ready to inspect JNI bindings, display lists, or memory pointers.`;
-            }
+        const { html, synthesizedDiff } = engine.analyzeAndRespond(text);
+        appendAgentMessage(html);
+        if (synthesizedDiff) {
+            renderSynthesizedDiff(synthesizedDiff);
         }
-
-        appendAgentMessage(responseHTML);
-    }, 600);
+        updateStatusBar();
+    }, 60);
 }
 
-function approveAndSave() {
-    alert("Changes approved and committed via NDK/Wasm toolchain!");
+async function approveAndSave() {
+    if (!pendingDiff) {
+        appendAgentMessage("No pending diff insertion staged. Ask the agent to diagnose or patch a specific symbol or file first.");
+        return;
+    }
+
+    const path = pendingDiff.filePath;
+    const fileObj = workspaceFiles[path];
+    let originalText = patchedContents[path];
+
+    if (originalText === undefined && fileObj) {
+        try {
+            originalText = await fileObj.text();
+        } catch (e) {
+            originalText = "";
+        }
+    }
+
+    const lines = (originalText || "").split('\n');
+    const insertIdx = Math.max(0, Math.min(lines.length, pendingDiff.line - 1));
+    lines.splice(insertIdx, 0, ...pendingDiff.insertionLines);
+    const updatedText = lines.join('\n');
+
+    patchedContents[path] = updatedText;
+    engine.reinforceActiveTethers();
+    updateStatusBar();
+
+    // Refresh editor view with committed file
+    document.getElementById('diff-file-title').textContent = `${path} (${updatedText.length} bytes) [COMMITTED]`;
+    document.getElementById('diff-view').textContent = updatedText;
+
+    // Trigger browser download of the patched file so user can apply directly on device
+    const blob = new Blob([updatedText], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = path.split('/').pop();
+    a.click();
+    URL.revokeObjectURL(url);
+
+    appendAgentMessage(`<strong>Patch Committed & Reinforced:</strong> Applied insertion to <code>${path}</code>, strengthened active conceptual tethers, and exported patched file.`);
+    pendingDiff = null;
 }
 
 function exportSession() {
     const sessionData = {
         timestamp: new Date().toISOString(),
         chatHistory,
-        lexiconState,
+        patchedContents,
+        engineState: engine.exportState(),
         fileCount: Object.keys(workspaceFiles).length
     };
 
@@ -285,7 +282,7 @@ function exportSession() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `coder-session-${Date.now()}.json`;
+    a.download = `coder-neuro-state-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
 }
@@ -298,12 +295,28 @@ function importSession(event) {
     reader.onload = function(e) {
         try {
             const data = JSON.parse(e.target.result);
-            lexiconState = data.lexiconState || lexiconState;
+            if (data.engineState) {
+                engine.importState(data.engineState);
+            }
+            patchedContents = data.patchedContents || {};
             chatHistory = data.chatHistory || [];
-            appendAgentMessage("Session state successfully restored from backup.");
+
+            const chatMessages = document.getElementById('chat-messages');
+            chatMessages.innerHTML = '';
+            chatHistory.forEach(msg => {
+                const div = document.createElement('div');
+                div.className = `message ${msg.sender === 'user' ? 'user' : 'agent'}`;
+                div.innerHTML = msg.text;
+                chatMessages.appendChild(div);
+            });
+
+            updateStatusBar();
+            appendAgentMessage(`<strong>Session Restored:</strong> Loaded ${engine.boxes.size} Conceptual Boxes, ${engine.tethers.length} Tethers, and ${Object.keys(engine.lexicon.dictionary).length} Lexicon entries.`);
         } catch (err) {
             alert("Failed to load session: " + err.message);
         }
     };
     reader.readAsText(file);
 }
+
+window.addEventListener('DOMContentLoaded', updateStatusBar);
