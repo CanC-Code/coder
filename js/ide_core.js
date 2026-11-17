@@ -1,18 +1,27 @@
-let workspaceFiles = {};
+let workspaceFiles = {}; // Stores File objects for on-demand reading
 let chatHistory = [];
 let lexiconState = {
     dictionary: {
         "rcp": { definition: "Reality Coprocessor: N64 co-processor containing RSP and RDP.", domain: "n64_hardware" },
         "rsp": { definition: "Reality Signal Processor: N64 geometry and audio vector processor.", domain: "n64_hardware" },
         "rdp": { definition: "Reality Display Processor: N64 rasterizer and texture mapping engine.", domain: "n64_hardware" },
-        "jni": { definition: "Java Native Interface: Bridge between Android Java runtime and NDK C++ code.", domain: "android_ndk" },
-        "binder": { definition: "Android inter-process communication mechanism.", domain: "android_os" }
+        "jni": { definition: "Java Native Interface: Bridge between Android Java runtime and NDK C++ code.", domain: "android_ndk" }
     },
     thesaurus: {
-        "rcp": { synonyms: ["coprocessor", "reality processor"], semantic_cluster: ["rsp", "rdp", "graphics", "microcode"] },
-        "jni": { synonyms: ["native bridge", "c++ wrapper"], semantic_cluster: ["ndk", "android", "bindings"] }
+        "rcp": { synonyms: ["coprocessor", "reality processor"], semantic_cluster: ["rsp", "rdp", "graphics", "microcode"] }
     }
 };
+
+function showProgress(text) {
+    const pc = document.getElementById('progress-container');
+    const pt = document.getElementById('progress-text');
+    pc.style.display = 'block';
+    pt.textContent = text;
+}
+
+function hideProgress() {
+    document.getElementById('progress-container').style.display = 'none';
+}
 
 function handleFolderSelect(event) {
     const files = event.target.files;
@@ -21,73 +30,106 @@ function handleFolderSelect(event) {
     workspaceFiles = {};
     const fileTreeEl = document.getElementById('file-tree');
     fileTreeEl.innerHTML = '';
+    
+    showProgress(`Indexing ${files.length} files...`);
 
-    // Build hierarchical tree structure from webkitRelativePath
-    const fileStructure = {};
+    setTimeout(() => {
+        const root = {};
 
-    for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const relPath = file.webkitRelativePath || file.name;
-        
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const content = e.target.result;
-            workspaceFiles[relPath] = { content, name: file.name };
-        };
-        reader.readAsText(file);
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            const relPath = file.webkitRelativePath || file.name;
+            workspaceFiles[relPath] = file; // Store reference for lazy loading
 
-        // Insert into DOM tree
-        const parts = relPath.split('/');
-        let currentLevel = fileTreeEl;
-        
-        parts.forEach((part, index) => {
-            const isFile = index === parts.length - 1;
-            const existingItems = Array.from(currentLevel.children);
-            let targetLi = existingItems.find(li => li.dataset.name === part);
-
-            if (!targetLi) {
-                targetLi = document.createElement('li');
-                targetLi.dataset.name = part;
-                targetLi.textContent = isFile ? `📄 ${part}` : `📁 ${part}/`;
-                targetLi.style.paddingLeft = `${index * 12 + 8}px`;
-                
-                if (isFile) {
-                    targetLi.onclick = () => loadFileIntoEditor(relPath);
-                } else {
-                    targetLi.style.fontWeight = '600';
-                    targetLi.style.color = 'var(--text-muted)';
+            // Build tree dictionary
+            const parts = relPath.split('/');
+            let curr = root;
+            parts.forEach((part, idx) => {
+                if (!curr[part]) {
+                    curr[part] = (idx === parts.length - 1) ? file : {};
                 }
-                currentLevel.appendChild(targetLi);
-            }
-            if (!isFile) {
-                let subUl = targetLi.querySelector('ul');
-                if (!subUl) {
-                    subUl = document.createElement('ul');
-                    subUl.style.listStyle = 'none';
-                    targetLi.appendChild(subUl);
-                }
-                currentLevel = subUl;
-            }
-        });
+                curr = curr[part];
+            });
+        }
+
+        renderTree(root, fileTreeEl, "");
+        hideProgress();
+        appendAgentMessage(`Successfully mounted workspace folder with <strong>${files.length}</strong> files ready for navigation and compilation.`);
+    }, 50);
+}
+
+function renderTree(node, parentElement, prefix) {
+    const keys = Object.keys(node).sort((a, b) => {
+        const aIsFile = node[a] instanceof File;
+        const bIsFile = node[b] instanceof File;
+        return aIsFile === bIsFile ? a.localeCompare(b) : aIsFile ? 1 : -1;
+    });
+
+    keys.forEach(key => {
+        const val = node[key];
+        const isFile = val instanceof File;
+        const li = document.createElement('li');
+        li.style.padding = '4px 6px';
+        li.style.fontSize = '12px';
+        li.style.cursor = 'pointer';
+        li.style.borderRadius = '3px';
+
+        if (isFile) {
+            li.textContent = `📄 ${key}`;
+            const fullPath = prefix ? `${prefix}/${key}` : key;
+            li.onclick = () => loadFileIntoEditor(fullPath, val);
+        } else {
+            li.textContent = `📁 ${key}/`;
+            li.style.fontWeight = '600';
+            li.style.color = 'var(--text-muted)';
+            
+            const subUl = document.createElement('ul0');
+            subUl.style.listStyle = 'none';
+            subUl.style.paddingLeft = '12px';
+            subUl.style.display = 'none'; // Collapsed by default for 1400+ file performance
+            
+            li.onclick = (e) => {
+                e.stopPropagation();
+                subUl.style.display = subUl.style.display === 'none' ? 'block' : 'none';
+            };
+            
+            renderTree(val, subUl, prefix ? `${prefix}/${key}` : key);
+            li.appendChild(subUl);
+        }
+        parentElement.appendChild(li);
+    });
+}
+
+async function loadFileIntoEditor(path, fileObj) {
+    document.getElementById('diff-file-title').textContent = `${path} (Loading...)`;
+    document.getElementById('diff-view').textContent = "// Reading file contents into memory...";
+
+    try {
+        const text = await fileObj.text();
+        document.getElementById('diff-file-title').textContent = `${path} (${text.length} bytes)`;
+        document.getElementById('diff-view').textContent = text;
+    } catch (err) {
+        document.getElementById('diff-view').textContent = `[!] Error reading file: ${err.message}`;
     }
-
-    appendAgentMessage(`Successfully mounted workspace folder containing <strong>${files.length}</strong> files. Tree structure restored.`);
 }
 
 function handleManualsIngest(event) {
     const files = event.target.files;
     if (!files || files.length === 0) return;
 
-    let ingestedCount = 0;
+    showProgress(`Ingesting ${files.length} manual(s)...`);
+
+    let processedCount = 0;
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const reader = new FileReader();
         reader.onload = function(e) {
             const text = e.target.result;
             parseAndLearnReference(file.name, text);
-            ingestedCount++;
-            if (ingestedCount === files.length) {
-                appendAgentMessage(`Successfully ingested reference manual(s) [<strong>${file.name}</strong>]. Lexical engine updated with N64 hardware specs & definitions.`);
+            processedCount++;
+            if (processedCount === files.length) {
+                hideProgress();
+                appendAgentMessage(`Successfully ingested reference manual: <strong>${file.name}</strong> (${Math.round(text.length / 1024)} KB). Lexical engine updated.`);
             }
         };
         reader.readAsText(file);
@@ -98,30 +140,20 @@ function parseAndLearnReference(filename, text) {
     const lines = text.split('\n');
     let domain = filename.toLowerCase().includes('n64') ? 'n64_hardware' : 'reference_doc';
     
-    // Extract capitalized technical terms or definitions
-    lines.forEach(line => {
-        if (line.length > 10 && line.length < 120 && (line.includes(':') || line.includes('-'))) {
+    // Sample lines to extract technical terms and definitions
+    for (let i = 0; i < Math.min(lines.length, 5000); i++) {
+        const line = lines[i].trim();
+        if (line.length > 5 && line.length < 100 && (line.includes(':') || line.includes('-'))) {
             const parts = line.split(/[:\-]/);
             if (parts.length >= 2) {
                 const term = parts[0].trim().toLowerCase();
                 const definition = parts[1].trim();
                 if (term.length > 2 && term.length < 30) {
                     lexiconState.dictionary[term] = { definition, domain };
-                    if (!lexiconState.thesaurus[term]) {
-                        lexiconState.thesaurus[term] = { synonyms: [], semantic_cluster: [] };
-                    }
                 }
             }
         }
-    });
-}
-
-function loadFileIntoEditor(path) {
-    const fileData = workspaceFiles[path];
-    if (!fileData) return;
-    
-    document.getElementById('diff-file-title').textContent = path + " (Active View)";
-    document.getElementById('diff-view').textContent = fileData.content;
+    }
 }
 
 function appendAgentMessage(htmlText) {
@@ -171,9 +203,9 @@ function sendGoal() {
         let responseHTML = "";
         if (matchedTerm) {
             const entry = lexiconState.dictionary[matchedTerm];
-            responseHTML = `<strong>N64 / Android Porting Match [${matchedTerm}]:</strong><br>${entry.definition} <br><br><em>Domain:</em> ${entry.domain}`;
+            responseHTML = `<strong>Lexicon Match [${matchedTerm}]:</strong><br>${entry.definition} <br><em>Domain:</em> ${entry.domain}`;
         } else {
-            responseHTML = `<strong>Android NDK & N64 Porting Engine:</strong><br>Analyzed query against loaded workspace and hardware specs. Recommending JNI memory mapping and Vulkan/OpenGL ES display list translation for ARM64 execution.`;
+            responseHTML = `<strong>Android NDK & N64 Porting Engine:</strong><br>Indexed query against workspace and ingested manuals. Ready to synthesize JNI wrappers, display list decoders, or ARM64 optimizations.`;
         }
 
         appendAgentMessage(responseHTML);
@@ -189,14 +221,14 @@ function exportSession() {
         timestamp: new Date().toISOString(),
         chatHistory,
         lexiconState,
-        files: Object.keys(workspaceFiles).map(k => ({ path: k, content: workspaceFiles[k].content }))
+        fileCount: Object.keys(workspaceFiles).length
     };
 
     const blob = new Blob([JSON.stringify(sessionData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `coder-n64-android-session-${Date.now()}.json`;
+    a.download = `coder-session-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
 }
@@ -211,18 +243,7 @@ function importSession(event) {
             const data = JSON.parse(e.target.result);
             lexiconState = data.lexiconState || lexiconState;
             chatHistory = data.chatHistory || [];
-            
-            if (data.files) {
-                workspaceFiles = {};
-                const fileTreeEl = document.getElementById('file-tree');
-                fileTreeEl.innerHTML = '';
-                
-                data.files.forEach(f => {
-                    workspaceFiles[f.path] = { content: f.content };
-                });
-                // Re-trigger folder view or list
-                appendAgentMessage("Session state restored successfully.");
-            }
+            appendAgentMessage("Session state successfully restored from backup.");
         } catch (err) {
             alert("Failed to load session: " + err.message);
         }

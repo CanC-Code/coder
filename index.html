@@ -11,15 +11,18 @@
         <!-- Sidebar File Explorer & Domain Controls -->
         <div class="sidebar">
             <div class="sidebar-header" style="display: flex; flex-direction: column; gap: 8px;">
-                <span>Android & N64 Workspace</span>
+                <span>Android & N64 Workspace (1400+ Ready)</span>
                 <div style="display: flex; gap: 6px; flex-wrap: wrap;">
                     <label style="flex: 1; background: var(--accent-blue); color: white; padding: 6px 8px; border-radius: 4px; font-size: 11px; text-align: center; cursor: pointer;">
                         Open Workspace <input type="file" id="folder-input" webkitdirectory directory multiple style="display: none;" onchange="handleFolderSelect(event)">
                     </label>
-                    <label style="flex: 1; background: var(--accent-green); color: white; padding: 6px 8px; border-radius: 4px; font-size: 11px; text-align: center; cursor: pointer;" title="Ingest N64 Manuals or SDK docs for learning">
-                        Ingest Manuals <input type="file" id="manuals-input" multiple accept=".txt,.md,.h,.cpp,.java" style="display: none;" onchange="handleManualsIngest(event)">
+                    <label style="flex: 1; background: var(--accent-green); color: white; padding: 6px 8px; border-radius: 4px; font-size: 11px; text-align: center; cursor: pointer;" title="Ingest massive N64 manuals">
+                        Ingest Manuals <input type="file" id="manuals-input" multiple accept=".txt,.md,.h,.cpp,.java,.djvu" style="display: none;" onchange="handleManualsIngest(event)">
                     </label>
                 </div>
+            </div>
+            <div id="progress-container" style="display: none; padding: 6px 12px; background: var(--bg-tertiary); font-size: 11px; border-bottom: 1px solid var(--border-color); color: var(--accent-blue);">
+                <span id="progress-text">Indexing files...</span>
             </div>
             <div style="padding: 6px 8px; border-bottom: 1px solid var(--border-color); display: flex; gap: 4px; background: var(--bg-tertiary);">
                 <button onclick="exportSession()" style="flex: 1; background: #21262d; border: 1px solid var(--border-color); color: var(--text-main); padding: 4px; border-radius: 4px; font-size: 11px; cursor: pointer;">Save State</button>
@@ -28,17 +31,17 @@
                 </label>
             </div>
             <ul class="file-tree" id="file-tree">
-                <li style="color: var(--text-muted); font-style: italic; padding: 12px;">No workspace folder loaded. Click "Open Workspace" to mount files.</li>
+                <li style="color: var(--text-muted); font-style: italic; padding: 12px;">No workspace mounted. Click "Open Workspace" to load your project directory.</li>
             </ul>
         </div>
 
         <!-- Main Workspace & Diff Viewer -->
         <div class="main-editor">
-            <div class="panel-header">Active Insertions & N64 Porting Engine</div>
+            <div class="panel-header" id="editor-header">Active Insertions & N64 Porting Engine</div>
             <div class="editor-workspace">
                 <div class="diff-box">
                     <div class="diff-header" id="diff-file-title">Select a file from your workspace</div>
-                    <div class="diff-content" id="diff-view">// Code or ingested N64 hardware reference text will appear here.</div>
+                    <div class="diff-content" id="diff-view">// Code or ingested N64 hardware reference text will appear here upon selection.</div>
                 </div>
                 <div style="display: flex; justify-content: flex-end; gap: 10px;">
                     <button class="btn-approve" onclick="approveAndSave()">Approve & Commit NDK/JNI Fix</button>
@@ -50,17 +53,17 @@
         <div class="chat-panel">
             <div class="panel-header">N64 to Android Porting Agent</div>
             <div class="chat-messages" id="chat-messages">
-                <div class="message agent">System online. Core optimized for <strong>Android NDK/JNI & N64 Hardware Porting</strong>. Load your project folder for workspace navigation, or ingest N64 programming manuals to teach the lexical engine.</div>
+                <div class="message agent">System online. Optimized for large-scale Android aarch64 codebases and N64 manual indexing. Ready for workspace mounting.</div>
             </div>
             <div class="chat-input-area">
-                <input type="text" id="user-input" placeholder="Ask about N64 display lists, JNI wrappers, or RDP/RSP..." onkeypress="handleKey(event)">
+                <input type="text" id="user-input" placeholder="Ask about N64 display lists, RDP microcode, or JNI..." onkeypress="handleKey(event)">
                 <button class="btn-approve" onclick="sendGoal()">Send</button>
             </div>
         </div>
 
         <!-- Status Bar -->
         <div class="statusbar">
-            <span>Domain: Android aarch64 & N64 Porting</span>
+            <span id="status-text">Domain: Android aarch64 & N64 Porting</span>
             <span>Graph Threshold (tau): 0.4 | Lexical Engine: Active</span>
         </div>
     </div>
