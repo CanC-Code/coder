@@ -102,6 +102,11 @@ class BidirectionalLexicon {
         for (const [term, def, domain, syns, ants] of seeds) {
             this.learn(term, def, domain, syns, ants, "developer.android.com");
         }
+        if (typeof EMBEDDED_ANDROID_KNOWLEDGE !== "undefined") {
+            for (const [term, def, domain, syns] of EMBEDDED_ANDROID_KNOWLEDGE) {
+                this.learn(term, def, domain, syns || [], [], "developer.android.com");
+            }
+        }
     }
 
     learn(term, definition, domain = "general", synonyms = [], antonyms = [], source = "workspace") {
