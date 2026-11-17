@@ -59,7 +59,7 @@ async function handleFolderSelect(event) {
     }
 
     renderTree(root, fileTreeEl, "");
-    appendAgentMessage(`Mounted workspace with <strong>${files.length}</strong> files. Tracing AndroidManifest, Gradle/CMake APK targets, JNI bindings, and runtime call paths...`);
+    appendAgentMessage(`Mounted workspace with <strong>${files.length}</strong> files. Tracing AndroidManifest, Gradle/Version Catalogs, R8 ProGuard rules, static & RegisterNatives JNI bindings, and runtime call paths...`);
 
     await ingestFilesInBatches(fileArray, false);
 }
@@ -67,7 +67,7 @@ async function handleFolderSelect(event) {
 async function ingestFilesInBatches(fileArray, isManual = false) {
     const batchSize = 25;
     let processed = 0;
-    const textExtensions = new Set(["c", "cpp", "cc", "cxx", "h", "hpp", "s", "asm", "java", "kt", "py", "js", "gradle", "kts", "xml", "mk", "cmake", "txt", "md", "sh", "json", "properties"]);
+    const textExtensions = new Set(["c", "cpp", "cc", "cxx", "h", "hpp", "s", "asm", "java", "kt", "py", "js", "gradle", "kts", "xml", "mk", "cmake", "txt", "md", "sh", "json", "properties", "toml", "pro"]);
 
     for (let i = 0; i < fileArray.length; i += batchSize) {
         const batch = fileArray.slice(i, i + batchSize);
@@ -87,7 +87,7 @@ async function ingestFilesInBatches(fileArray, isManual = false) {
         }));
 
         processed += batch.length;
-        showProgress(`${isManual ? "Ingesting manual" : "Tracing APK Packaging & Runtime"}: ${processed} / ${fileArray.length} files...`);
+        showProgress(`${isManual ? "Ingesting manual" : "Tracing Android SDK, Packaging & Runtime"}: ${processed} / ${fileArray.length} files...`);
         updateStatusBar();
         await new Promise(r => setTimeout(r, 2));
     }
@@ -101,10 +101,10 @@ async function ingestFilesInBatches(fileArray, isManual = false) {
     const highCount = engine.auditFindings.filter(f => f.severity === "HIGH").length;
 
     appendAgentMessage(
-        `<strong>Android Packaging & Neuro-Symbolic Runtime Graph Ready:</strong><br>` +
-        `• <strong>APK Structure:</strong> ${am.components.length} Manifest components, ${am.nativeTargets.length} native <code>.so</code> target(s), ${am.javaNativeMethods.length} JNI native methods, ${am.packagedAssets.length} asset/resource entries.<br>` +
-        `• <strong>Runtime Graph & Audit:</strong> ${engine.runtimeReachable.size} runtime-reachable symbols; <span style="color:#ff7b72;">${critCount} CRITICAL</span> and <span style="color:#d29922;">${highCount} HIGH</span> alignment/JNI findings.<br>` +
-        `• Tap <strong>APK & Runtime</strong>, <strong>Port Audit</strong>, or type <code>trace &lt;file_or_symbol&gt;</code>.`
+        `<strong>Android SDK, Packaging & Neuro-Symbolic Runtime Graph Ready:</strong><br>` +
+        `• <strong>APK & Build Structure:</strong> ${am.components.length} Manifest components, ${am.nativeTargets.length} native <code>.so</code> target(s), ${am.javaNativeMethods.length} JNI methods (${am.dynamicJniMethods.length} dynamic <code>RegisterNatives</code>), ${am.reverseJniLookups.length} reverse-JNI lookups, ${am.packagedAssets.length} asset/resource entries.<br>` +
+        `• <strong>Runtime Graph & Audit:</strong> ${engine.runtimeReachable.size} runtime-reachable symbols; <span style="color:#ff7b72;">${critCount} CRITICAL</span> and <span style="color:#d29922;">${highCount} HIGH</span> Android SDK/JNI/alignment findings.<br>` +
+        `• Tap <strong>APK & Runtime</strong>, <strong>Port Audit</strong>, or ask any Android SDK/NDK question or <code>trace &lt;file_or_symbol&gt;</code>.`
     );
 }
 
