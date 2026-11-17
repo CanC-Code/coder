@@ -1,0 +1,29 @@
+name: Wasm Android Coder CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Run Graph Validator
+        run: |
+          # Create a mock schema test file to validate validator logic
+          echo '{"boxes": [{"id": "test"}], "tethers": [{"id": "t1", "weight": 0.5}]}' > test_schema.json
+          python3 instrumentation/graph_validator.py test_schema.json
+
+      - name: Run Orchestrator Unit Test
+        run: |
+          python3 core/runtime/host_orchestrator.py

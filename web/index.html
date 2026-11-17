@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coder - Android Wasm Conceptual Linker IDE</title>
+    <link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+    <div class="ide-container">
+        <!-- Sidebar File Explorer -->
+        <div class="sidebar">
+            <div class="sidebar-header">Repository Files</div>
+            <ul class="file-tree" id="file-tree">
+                <li>📁 core/graph/box.py</li>
+                <li>📁 core/graph/tether.py</li>
+                <li>📁 core/graph/traverser.py</li>
+                <li>📁 core/runtime/host_orchestrator.py</li>
+                <li>📁 core/runtime/wasm_bridge.cpp</li>
+                <li>📁 instrumentation/graph_validator.py</li>
+                <li>📁 instrumentation/log_inspector.py</li>
+            </ul>
+        </div>
+
+        <!-- Main Workspace & Diff Viewer -->
+        <div class="main-editor">
+            <div class="panel-header">Active Insertions & Diff Review</div>
+            <div class="editor-workspace">
+                <div class="diff-box">
+                    <div class="diff-header">core/runtime/host_orchestrator.py (Pending Insertions)</div>
+                    <div class="diff-content" id="diff-view">
+ class HostOrchestrator:
+     def __init__(self, threshold=0.4):
+         self.boxes = {}
+         self.tethers = []
+<span class="insertion">+        # Wasm zero-copy memory bridge binding initialized</span>
+<span class="insertion">+        self.wasm_active = True</span>
+     def execute_intent_loop(self, seed_box_ids):
+                    </div>
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                    <button class="btn-approve" onclick="approveAndSave()">Approve & Save Changes</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat Goal Interface -->
+        <div class="chat-panel">
+            <div class="panel-header">Goal & Conceptual Linker Chat</div>
+            <div class="chat-messages" id="chat-messages">
+                <div class="message agent">System online. Conceptual graph and Wasm Android sandbox ready. Establish your goal.</div>
+            </div>
+            <div class="chat-input-area">
+                <input type="text" id="user-input" placeholder="Enter objective or fix..." onkeypress="handleKey(event)">
+                <button class="btn-approve" onclick="sendGoal()">Send</button>
+            </div>
+        </div>
+
+        <!-- Status Bar -->
+        <div class="statusbar">
+            <span>Status: Connected to Wasm Sandbox (Deterministic)</span>
+            <span>Graph Threshold (tau): 0.4 | Active Tethers: Synced</span>
+        </div>
+    </div>
+
+    <script src="js/ide_core.js"></script>
+</body>
+</html>
