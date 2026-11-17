@@ -346,3 +346,62 @@ function importSession(event) {
 }
 
 window.addEventListener('DOMContentLoaded', updateStatusBar);
+
+
+// --- Resilient Session Auto-Restore & Continuous Snapshot Hooks ---
+(function initResilientCoderSession() {
+    if (!window.coderPersistence) return;
+
+    const captureUiState = () => {
+        const chatBox = document.getElementById("chat-log") || document.getElementById("agent-output") || document.querySelector(".chat-messages");
+        return {
+            chatHtml: chatBox ? chatBox.innerHTML : "",
+            stagedDiff: typeof currentStagedDiff !== "undefined" ? currentStagedDiff : null,
+            dirHandle: typeof rootDirHandle !== "undefined" ? rootDirHandle : null,
+            workspaceName: typeof rootDirHandle !== "undefined" && rootDirHandle ? rootDirHandle.name : ""
+        };
+    };
+
+    window.triggerCoderSnapshot = () => {
+        if (typeof engine !== "undefined" && window.coderPersistence) {
+            window.coderPersistence.scheduleSnapshot(engine, captureUiState());
+        }
+    };
+
+    window.addEventListener("beforeunload", () => {
+        if (typeof engine !== "undefined" && window.coderPersistence) {
+            window.coderPersistence.saveFullSession(engine, captureUiState()).catch(() => {});
+        }
+    });
+
+    document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden" && typeof engine !== "undefined" && window.coderPersistence) {
+            window.coderPersistence.saveFullSession(engine, captureUiState()).catch(() => {});
+        }
+    });
+
+    window.addEventListener("DOMContentLoaded", async () => {
+        if (typeof engine === "undefined" || !window.coderPersistence) return;
+        try {
+            const restored = await window.coderPersistence.restoreFullSession(engine);
+            if (restored && engine.fileSummaries && engine.fileSummaries.size > 0) {
+                const chatBox = document.getElementById("chat-log") || document.getElementById("agent-output") || document.querySelector(".chat-messages");
+                if (chatBox && restored.chatHtml) {
+                    chatBox.innerHTML = restored.chatHtml;
+                }
+                if (restored.stagedDiff && typeof renderStagedDiff === "function") {
+                    renderStagedDiff(restored.stagedDiff);
+                }
+                if (typeof updateStatusBar === "function") {
+                    updateStatusBar();
+                }
+                if (typeof appendMessage === "function") {
+                    const when = new Date(restored.timestamp).toLocaleTimeString();
+                    appendMessage("agent", `<strong>Session Recovered (${when}):</strong> Automatically restored <code>${engine.fileSummaries.size}</code> workspace files, <code>${engine.boxes.size}</code> conceptual nodes, and <code>${engine.auditFindings.length}</code> audit findings from offline IndexedDB.`);
+                }
+            }
+        } catch (err) {
+            console.warn("Session recovery skipped:", err);
+        }
+    });
+})();

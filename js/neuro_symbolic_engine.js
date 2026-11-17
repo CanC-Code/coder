@@ -1529,6 +1529,7 @@ class NeuroSymbolicEngine {
 
         const rank = { CRITICAL: 0, HIGH: 1, MEDIUM: 2 };
         this.auditFindings.sort((a, b) => (rank[a.severity] ?? 3) - (rank[b.severity] ?? 3));
+        if (typeof window !== "undefined" && window.triggerCoderSnapshot) window.triggerCoderSnapshot();
     }
 
     retrieveAndActivate(queryText, topK = 8) {
@@ -1613,6 +1614,7 @@ class NeuroSymbolicEngine {
         for (const t of this.lastActiveTethers) {
             t.reinforce(1.1);
         }
+        if (typeof window !== "undefined" && window.triggerCoderSnapshot) window.triggerCoderSnapshot();
     }
 
     analyzeAndroidPackagingAndOperation() {
