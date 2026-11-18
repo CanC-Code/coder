@@ -536,16 +536,29 @@ class NeuroSymbolicEngine {
                 continue;
             }
 
-            // Learn #define macros, GBI/F3DDKR opcodes, and hardware constants from ingested headers & sources
+            // Learn #define macros, GBI/F3DDKR opcodes, _SHIFTL bitfields, and hardware constants from ingested headers & sources
             if (trimmed.startsWith("#define ")) {
-                const defMatch = trimmed.match(/^#define\s+([A-Za-z_][A-Za-z0-9_]*)(?:\(([^)]*)\))?\s+(.+)$/);
+                // Join backslash-continued macro lines so multi-line F3DDKR macros are captured intact
+                let fullMacro = trimmed;
+                let lookahead = i;
+                while (fullMacro.endsWith("\\") && lookahead + 1 < lines.length) {
+                    lookahead++;
+                    fullMacro = fullMacro.slice(0, -1).trimEnd() + " " + lines[lookahead].trim();
+                }
+                const defMatch = fullMacro.match(/^#define\s+([A-Za-z_][A-Za-z0-9_]*)(?:\(([^)]*)\))?\s+(.+)$/);
                 if (defMatch) {
                     const mName = defMatch[1];
                     const mParams = defMatch[2];
                     const mBody = defMatch[3].replace(/\/\/.*$/, "").replace(/\/\*.*?\*\//g, "").trim();
                     const numMatch = mBody.match(/^\(?(0x[0-9a-fA-F]+|\d+)[uUlL]*\)?$/);
                     const numericVal = numMatch ? Number(numMatch[1]) : null;
-                    this.macroTable.set(mName, { value: mBody, numericVal, params: mParams || null, filePath: path, line: i + 1, domain });
+                    const shiftFields = [];
+                    const shiftRe = /_SHIFTL\s*\(\s*([^,]+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/g;
+                    let sm;
+                    while ((sm = shiftRe.exec(mBody)) !== null) {
+                        shiftFields.push({ arg: sm[1].trim(), shift: Number(sm[2]), width: Number(sm[3]) });
+                    }
+                    this.macroTable.set(mName, { value: mBody, numericVal, shiftFields, params: mParams || null, filePath: path, line: i + 1, domain });
 
                     if (/^(?:G_|F3D|DKR_|OS_|VI_|AI_|PI_|SP_|DP_|FB_|SCREEN_|BKA_)/.test(mName) || numericVal !== null) {
                         const boxId = `macro:${path}:${i + 1}:${mName}`;
@@ -1318,10 +1331,32 @@ class NeuroSymbolicEngine {
         const hardcoded4kRegex = /\b(?:4096|0x1000|PAGE_SIZE)\b/;
 
         let loopDepth = 0;
+        let deadIfZeroDepth = 0;
+        const isEmulatorOrGfx = /(?:gfx_interpreter|pi_hle|ptr_shim|resource_mgr)\.(?:c|cpp)$/i.test(path);
 
         for (let i = 0; i < lines.length; i++) {
             const trimmed = lines[i].trim();
             if (!trimmed || trimmed.startsWith("//") || trimmed.startsWith("*")) continue;
+
+            if (/^#if\s+0\b/.test(trimmed)) { deadIfZeroDepth++; continue; }
+            if (deadIfZeroDepth > 0) {
+                if (/^#if/.test(trimmed)) deadIfZeroDepth++;
+                else if (/^#endif\b/.test(trimmed)) deadIfZeroDepth--;
+                continue;
+            }
+
+            // Detect raw un-swapped big-endian N64 RDRAM / TMEM multi-byte reads on little-endian ARM64
+            if (isEmulatorOrGfx && /\*\s*\(\s*(?:const\s+)?(?:u16|s16|u32|s32|uint16_t|int16_t|uint32_t|int32_t)\s*\*\s*\)\s*(?:gN64_RDRAM|s_rdp\.tmem|tmem|rdram)/.test(trimmed) && !trimmed.includes("bswap")) {
+                this.auditFindings.push({
+                    severity: "HIGH",
+                    category: "Big-Endian N64 RDRAM/TMEM Unswapped Read",
+                    filePath: path,
+                    line: i + 1,
+                    code: trimmed,
+                    reason: "Reading big-endian N64 RDRAM/TMEM directly via host uint16_t*/uint32_t* dereference on little-endian ARM64 swaps byte order and risks SIGBUS unaligned access.",
+                    fixSuggestion: `// Swap N64 big-endian bytes (__builtin_bswap16 / __builtin_bswap32) after aligned memcpy:\n${trimmed}`
+                });
+            }
 
             if (/^(?:for|while)\s*\(/.test(trimmed)) loopDepth++;
             if (loopDepth > 0 && trimmed === "}") loopDepth = Math.max(0, loopDepth - 1);
@@ -1369,6 +1404,7 @@ class NeuroSymbolicEngine {
                     filePath: path,
                     line: i + 1,
                     code: trimmed,
+                    requiredHeader: "#include <unistd.h>",
                     reason: "NDK r27+ removes compile-time PAGE_SIZE and Android 15-17 devices use 16 KB (16384) pages. Replace hardcoded 4096/0x1000/PAGE_SIZE with sysconf(_SC_PAGESIZE).",
                     replaceLine: true,
                     fixSuggestion: trimmed.replace(/\b(?:4096|0x1000|PAGE_SIZE)\b/g, "(size_t)sysconf(_SC_PAGESIZE)")
@@ -1944,6 +1980,33 @@ ${stub.decompImpl.snippet}`
                 this.addTether(`macro:${info.filePath}:${info.line}:${mName}`, gfxBox.id, 0.85, "specifies_opcode");
             }
         }
+
+        // Verify F3DDKR macro _SHIFTL bit-positions against shift/mask expressions in gfx_interpreter
+        const gfxAllSnippets = Array.from(this.boxes.values())
+            .filter(b => b.payload && /gfx_interpreter\.(c|cpp)$/.test(b.payload.filePath) && b.payload.snippet)
+            .map(b => b.payload.snippet)
+            .join("\n");
+        if (gfxAllSnippets.length > 0) {
+            for (const [mName, info] of this.macroTable.entries()) {
+                if (!/(?:f3ddkr|gbi)\.h$/i.test(info.filePath) || !info.shiftFields || info.shiftFields.length === 0) continue;
+                if (!/^(?:gSP|gDP|gsSP|gsDP)/.test(mName)) continue;
+                for (const sf of info.shiftFields) {
+                    if (sf.shift === 0 || sf.shift === 24) continue;
+                    const maskHex = `0x${((1 << sf.width) - 1).toString(16)}`;
+                    const hasShift = gfxAllSnippets.includes(`>> ${sf.shift}`) || gfxAllSnippets.includes(`>>${sf.shift}`);
+                    if (!hasShift && /Matrix|Vtx|Tri|SetImg|Tile/i.test(mName)) {
+                        this.lexicon.learn(
+                            `${mName}_bitfield_${sf.arg}`,
+                            `F3DDKR Spec (${info.filePath}:${info.line}): ${mName} packs '${sf.arg}' at bit shift ${sf.shift} (width ${sf.width}, mask ${maskHex}). Verify gfx_interpreter extracts ((w >> ${sf.shift}) & ${maskHex}).`,
+                            "n64_graphics",
+                            [mName.toLowerCase(), "f3ddkr", "bitfield"],
+                            [],
+                            info.filePath
+                        );
+                    }
+                }
+            }
+        }
     }
 
     verifyFindingEndToEnd(finding) {
@@ -1970,10 +2033,11 @@ ${stub.decompImpl.snippet}`
                     finding.fixSuggestion = `${finding.fixSuggestion}\n// [Co-requisite in ${lhsMeta.filePath}] Widen ${lhsMeta.structName}.${lhsField} from ${lhsMeta.type} -> uintptr_t`;
                 }
             }
-            // Verify <stdint.h> availability for uintptr_t
+            // Verify <stdint.h> availability for uintptr_t & mark for automatic header injection
             const sum = this.fileSummaries.get(finding.filePath);
             if (sum && !sum.includes.some(inc => inc.includes("stdint.h") || inc.includes("ultra64.h") || inc.includes("types.h"))) {
-                verifiedNotes.push("Requires #include <stdint.h> for uintptr_t.");
+                verifiedNotes.push("Auto-injects #include <stdint.h> for uintptr_t.");
+                finding.requiredHeader = "#include <stdint.h>";
             }
         }
 

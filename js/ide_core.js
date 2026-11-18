@@ -1,6 +1,7 @@
 const engine = new NeuroSymbolicEngine(0.35);
 let workspaceFiles = {};   // relPath -> File
 let patchedContents = {};  // relPath -> string (in-memory approved patches)
+let fileLineOffsets = {};  // relPath -> Array<{ atLine: number, delta: number }>
 let currentOpenFile = null;
 let pendingDiff = null;
 let chatHistory = [];
@@ -35,6 +36,7 @@ async function handleFolderSelect(event) {
 
     workspaceFiles = {};
     patchedContents = {};
+    fileLineOffsets = {};
     engine.resetWorkspace();
 
     const fileTreeEl = document.getElementById('file-tree');
@@ -392,17 +394,37 @@ async function approveAndSave() {
         originalText = cachedFileTexts[path];
     }
     const lines = (originalText || "").split('\n');
-    const insertIdx = Math.max(0, Math.min(lines.length, pendingDiff.line - 1));
+    const priorShifts = (fileLineOffsets[path] || []).reduce((acc, op) => op.atLine <= pendingDiff.line ? acc + op.delta : acc, 0);
+    let insertIdx = Math.max(0, Math.min(lines.length, (pendingDiff.line - 1) + priorShifts));
     const codeLines = pendingDiff.insertionLines.filter(l => !l.trim().startsWith("// [Co-requisite"));
+
+    let delta = 0;
     if (pendingDiff.replaceSpan && pendingDiff.endLine >= pendingDiff.line && insertIdx < lines.length) {
         const spanCount = Math.min(lines.length - insertIdx, (pendingDiff.endLine - pendingDiff.line) + 1);
         lines.splice(insertIdx, spanCount, ...codeLines);
+        delta = codeLines.length - spanCount;
     } else if (pendingDiff.replaceLine && insertIdx < lines.length) {
         const origIndent = (lines[insertIdx].match(/^\s*/) || [""])[0];
         const formatted = codeLines.map((l, idx) => idx === 0 && !l.startsWith(origIndent) ? origIndent + l.trimStart() : l);
         lines.splice(insertIdx, 1, ...formatted);
+        delta = formatted.length - 1;
     } else {
         lines.splice(insertIdx, 0, ...codeLines);
+        delta = codeLines.length;
+    }
+
+    if (!fileLineOffsets[path]) fileLineOffsets[path] = [];
+    if (delta !== 0) fileLineOffsets[path].push({ atLine: pendingDiff.line, delta });
+
+    // Auto-inject required standard header (#include <stdint.h> / <unistd.h>) if missing
+    if (pendingDiff.requiredHeader && !lines.some(l => l.trim() === pendingDiff.requiredHeader)) {
+        let lastIncIdx = -1;
+        for (let k = 0; k < Math.min(lines.length, 60); k++) {
+            if (lines[k].trim().startsWith("#include")) lastIncIdx = k;
+        }
+        const hdrPos = lastIncIdx >= 0 ? lastIncIdx + 1 : 0;
+        lines.splice(hdrPos, 0, pendingDiff.requiredHeader);
+        fileLineOffsets[path].push({ atLine: hdrPos + 1, delta: 1 });
     }
     const updatedText = lines.join('\n');
 
@@ -419,30 +441,66 @@ async function approveAndSave() {
 }
 
 function buildContextUnifiedHunks(origLines, newLines, ctx = 3) {
-    let prefix = 0;
-    while (prefix < origLines.length && prefix < newLines.length && origLines[prefix] === newLines[prefix]) {
-        prefix++;
+    // Emit disjoint minimal unified diff hunks so multi-edit files produce clean surgical patches
+    const n = origLines.length;
+    const m = newLines.length;
+    const dp = Array.from({ length: n + 1 }, () => new Int32Array(m + 1));
+    for (let i = n - 1; i >= 0; i--) {
+        for (let j = m - 1; j >= 0; j--) {
+            dp[i][j] = origLines[i] === newLines[j]
+                ? dp[i + 1][j + 1] + 1
+                : Math.max(dp[i + 1][j], dp[i][j + 1]);
+        }
     }
-    let suffix = 0;
-    while (
-        suffix < (origLines.length - prefix) &&
-        suffix < (newLines.length - prefix) &&
-        origLines[origLines.length - 1 - suffix] === newLines[newLines.length - 1 - suffix]
-    ) {
-        suffix++;
+    const ops = [];
+    let i = 0, j = 0;
+    while (i < n && j < m) {
+        if (origLines[i] === newLines[j]) {
+            ops.push({ type: " ", origIdx: i, newIdx: j, text: origLines[i] });
+            i++; j++;
+        } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+            ops.push({ type: "-", origIdx: i, newIdx: j, text: origLines[i] });
+            i++;
+        } else {
+            ops.push({ type: "+", origIdx: i, newIdx: j, text: newLines[j] });
+            j++;
+        }
     }
-    if (prefix + suffix >= origLines.length && origLines.length === newLines.length) {
-        return [];
-    }
-    const startOrig = Math.max(0, prefix - ctx);
-    const endOrig = Math.min(origLines.length, origLines.length - suffix + ctx);
-    const endNew = Math.min(newLines.length, newLines.length - suffix + ctx);
+    while (i < n) { ops.push({ type: "-", origIdx: i, newIdx: j, text: origLines[i] }); i++; }
+    while (j < m) { ops.push({ type: "+", origIdx: i, newIdx: j, text: newLines[j] }); j++; }
 
-    const out = [`@@ -${startOrig + 1},${endOrig - startOrig} +${startOrig + 1},${endNew - startOrig} @@`];
-    for (let i = startOrig; i < prefix; i++) out.push(` ${origLines[i]}`);
-    for (let i = prefix; i < origLines.length - suffix; i++) out.push(`-${origLines[i]}`);
-    for (let i = prefix; i < newLines.length - suffix; i++) out.push(`+${newLines[i]}`);
-    for (let i = origLines.length - suffix; i < endOrig; i++) out.push(` ${origLines[i]}`);
+    const changeIndices = [];
+    for (let k = 0; k < ops.length; k++) {
+        if (ops[k].type !== " ") changeIndices.push(k);
+    }
+    if (changeIndices.length === 0) return [];
+
+    // Group nearby changes within 2 * ctx lines into separate disjoint hunks
+    const groups = [];
+    let gStart = Math.max(0, changeIndices[0] - ctx);
+    let gEnd = Math.min(ops.length - 1, changeIndices[0] + ctx);
+    for (let c = 1; c < changeIndices.length; c++) {
+        const idx = changeIndices[c];
+        if (idx - ctx <= gEnd + 1) {
+            gEnd = Math.min(ops.length - 1, idx + ctx);
+        } else {
+            groups.push([gStart, gEnd]);
+            gStart = Math.max(0, idx - ctx);
+            gEnd = Math.min(ops.length - 1, idx + ctx);
+        }
+    }
+    groups.push([gStart, gEnd]);
+
+    const out = [];
+    for (const [s, e] of groups) {
+        const slice = ops.slice(s, e + 1);
+        const origStart = slice[0].origIdx + 1;
+        const newStart = slice[0].newIdx + 1;
+        const origCount = slice.filter(o => o.type !== "+").length;
+        const newCount = slice.filter(o => o.type !== "-").length;
+        out.push(`@@ -${origStart},${origCount} +${newStart},${newCount} @@`);
+        for (const item of slice) out.push(`${item.type}${item.text}`);
+    }
     return out;
 }
 
@@ -594,6 +652,7 @@ function stageFindingAtIndex(idx) {
         replaceLine: Boolean(f.replaceLine),
         replaceSpan: Boolean(f.replaceSpan),
         endLine: f.endLine || f.line,
+        requiredHeader: f.requiredHeader || null,
         originalLine: f.code || "",
         symbolName: `[Finding ${activeFindingIndex + 1}/${engine.auditFindings.length}] ${f.category}${vBadge}`,
         contextBefore: [`// [${f.severity}] ${f.category}${vBadge}`, `// Original: ${f.code}`, ...vNotes],
