@@ -25,18 +25,32 @@ class CoderVisionAndRuntimeAnalyzer {
 
     computeMetrics(imageData) {
         const { data, width, height } = imageData;
-        if (this.wasmExports && this.wasmExports.memory && this.wasmExports.malloc) {
+        const wex = this.wasmExports;
+        if (wex && wex.memory && wex.analyze_rgba_framebuffer) {
             const byteLen = data.length;
-            const ptr = this.wasmExports.malloc(byteLen);
-            const outPtr = this.wasmExports.malloc(8 * 4);
-            new Uint8Array(this.wasmExports.memory.buffer, ptr, byteLen).set(data);
-            this.wasmExports.analyze_rgba_framebuffer(ptr, width, height, outPtr);
-            const metrics = Array.from(new Float32Array(this.wasmExports.memory.buffer, outPtr, 8));
-            if (this.wasmExports.free) {
-                this.wasmExports.free(ptr);
-                this.wasmExports.free(outPtr);
+            if (wex.get_wasm_scratch_buffer && wex.get_wasm_metrics_buffer &&
+                (!wex.get_wasm_scratch_capacity || byteLen <= wex.get_wasm_scratch_capacity())) {
+                const ptr = wex.get_wasm_scratch_buffer();
+                const outPtr = wex.get_wasm_metrics_buffer();
+                new Uint8Array(wex.memory.buffer, ptr, byteLen).set(data);
+                wex.analyze_rgba_framebuffer(ptr, width, height, outPtr);
+                const metrics = Array.from(new Float32Array(wex.memory.buffer, outPtr, 8));
+                return { metrics, bbox: null, backend: "Wasm (wasm_bridge.wasm zero-copy)" };
             }
-            return { metrics, backend: "Wasm (wasm_bridge.wasm)" };
+            const alloc = wex.allocate_buffer || wex.malloc;
+            const dealloc = wex.free_buffer || wex.free;
+            if (alloc) {
+                const ptr = alloc(byteLen);
+                const outPtr = alloc(8 * 4);
+                new Uint8Array(wex.memory.buffer, ptr, byteLen).set(data);
+                wex.analyze_rgba_framebuffer(ptr, width, height, outPtr);
+                const metrics = Array.from(new Float32Array(wex.memory.buffer, outPtr, 8));
+                if (dealloc) {
+                    dealloc(ptr);
+                    dealloc(outPtr);
+                }
+                return { metrics, bbox: null, backend: "Wasm (wasm_bridge.wasm)" };
+            }
         }
 
         const total = width * height;
@@ -181,13 +195,13 @@ class CoderVisionAndRuntimeAnalyzer {
     }
 
     isRuntimeCrashLog(text) {
-        return /(?:SIGSEGV|SIGBUS|SIGABRT|SEGVDUMP|SEGV_MAPERR|SEGV_MTESERR|UnsatisfiedLinkError|NoSuchMethodError|Fatal signal 11|backtrace:|BKA-FILE|RDRAM-WRITE)/i.test(text);
+        return /\b(?:SIGSEGV|SIGBUS|SIGABRT|SEGVDUMP|SEGV_MAPERR|SEGV_MTESERR|UnsatisfiedLinkError|NoSuchMethodError|Fatal signal 11|backtrace:|BKA-FILE|RDRAM-WRITE)\b/i.test(text);
     }
 
     analyzeRuntimeCrashLog(logText, engine, getFileText) {
         const faultMatch = logText.match(/fault addr\s+(0x[0-9a-fA-F]+)/i);
         const faultAddr = faultMatch ? faultMatch[1] : null;
-        const isZeroUpper32 = faultAddr && /^0x0{8}[0-9a-fA-F]{1,8}$/i.test(faultAddr);
+        const isZeroUpper32 = faultAddr && (/^0x0{8}[0-9a-fA-F]{1,8}$/i.test(faultAddr) || (/^0x[0-9a-fA-F]{1,8}$/i.test(faultAddr) && Number(faultAddr) > 0));
         const isMteTagFault = /SEGV_MTESERR/i.test(logText) || (faultAddr && /^0x0[1-9a-fA-F]00/i.test(faultAddr));
 
         // Extract native backtrace symbols: e.g. #00 pc 0004a120 ... (Cmd_Vtx+148) or (Java_com_dkrwrapper_...)
@@ -201,7 +215,7 @@ class CoderVisionAndRuntimeAnalyzer {
         }
 
         // Extract BKA ring buffer opcode if present (w0=0x... op=0x...)
-        const opMatch = logText.match(/op=(0x[0-9a-fA-F]{2})/i);
+        const opMatch = logText.match(/\bop=(0x[0-9a-fA-F]{2})\b/i);
         let opcodeMacro = null;
         if (opMatch) {
             const opNum = Number(opMatch[1]);

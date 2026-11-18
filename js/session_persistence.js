@@ -110,24 +110,17 @@ if ("serviceWorker" in navigator) {
 
 if (window.coderPersistence) {
     window.coderPersistence.clearSnapshot = async function() {
-        return new Promise((resolve) => {
-            try {
-                const req = indexedDB.open("CoderIDE_DB", 1);
-                req.onsuccess = () => {
-                    const db = req.result;
-                    if (db.objectStoreNames.contains("snapshots")) {
-                        const tx = db.transaction("snapshots", "readwrite");
-                        tx.objectStore("snapshots").clear();
-                        tx.oncomplete = () => resolve(true);
-                        tx.onerror = () => resolve(false);
-                    } else {
-                        resolve(true);
-                    }
-                };
-                req.onerror = () => resolve(false);
-            } catch (_) {
-                resolve(false);
-            }
-        });
+        clearTimeout(this._saveTimer);
+        try {
+            const db = await this.init();
+            return await new Promise((resolve) => {
+                const tx = db.transaction("session", "readwrite");
+                tx.objectStore("session").clear();
+                tx.oncomplete = () => resolve(true);
+                tx.onerror = () => resolve(false);
+            });
+        } catch (_) {
+            return false;
+        }
     };
 }

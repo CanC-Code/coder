@@ -389,11 +389,12 @@ class NeuroSymbolicEngine {
     }
 
     addBox(box) {
+        const isNew = !this.boxes.has(box.id);
         this.boxes.set(box.id, box);
         const searchable = `${box.payload.name} ${box.payload.filePath} ${box.payload.signature || ""} ${box.payload.snippet || ""}`;
         const tokens = this.tokenize(searchable);
         this.docLengths.set(box.id, tokens.length || 1);
-        this.totalDocs++;
+        if (isNew) this.totalDocs++;
 
         const tfMap = new Map();
         for (const tok of tokens) {
@@ -2134,6 +2135,13 @@ ${stub.decompImpl.snippet}`
     }
 
     finalizeCrossReferences() {
+        const xrefTitles = new Set([
+            "Unmatched System.loadLibrary",
+            "Unresolved JNI Native Binding",
+            "R8 Full-Mode Reverse-JNI Strip Risk",
+            "Emulator vs Game Framebuffer Resolution Mismatch"
+        ]);
+        this.auditFindings = this.auditFindings.filter(f => !xrefTitles.has(f.title));
         let sumLen = 0;
         for (const len of this.docLengths.values()) sumLen += len;
         this.avgDocLength = this.totalDocs > 0 ? sumLen / this.totalDocs : 1;
@@ -2752,6 +2760,8 @@ ${stub.decompImpl.snippet}`
             lexicon: this.lexicon.toJSON(),
             boxes: Array.from(this.boxes.values()).filter(b => b.type !== "android_api_doc"),
             tethers: this.tethers,
+            macroTable: Array.from(this.macroTable.entries()),
+            stubCatalog: this.stubCatalog,
             auditFindings: this.auditFindings,
             androidModel: this.androidModel
         };
@@ -2771,6 +2781,12 @@ ${stub.decompImpl.snippet}`
             for (const t of data.tethers) {
                 this.addTether(t.sourceId, t.targetId, t.weight, t.relation);
             }
+        }
+        if (Array.isArray(data.macroTable)) {
+            this.macroTable = new Map(data.macroTable);
+        }
+        if (Array.isArray(data.stubCatalog)) {
+            this.stubCatalog = data.stubCatalog;
         }
         this.auditFindings = data.auditFindings || [];
         if (data.androidModel) this.androidModel = data.androidModel;

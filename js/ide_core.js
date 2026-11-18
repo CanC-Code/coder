@@ -226,14 +226,21 @@ function renderSynthesizedDiff(diff) {
 
     const titleEl = document.getElementById('diff-file-title');
     const viewEl = document.getElementById('diff-view');
-    titleEl.textContent = `${diff.filePath}:${diff.line} — Synthesized Insertion (${diff.symbolName})`;
+    const modeLabel = diff.advisory ? "Advisory Inspection" : ((diff.replaceLine || diff.replaceSpan) ? "Synthesized Replacement" : "Synthesized Insertion");
+    titleEl.textContent = `${diff.filePath}:${diff.line} — ${modeLabel} (${diff.symbolName})`;
 
-    const escapeHtml = str => str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const escapeHtml = str => String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const hunkHeader = `<span class="diff-meta">@@ -${diff.line},1 +${diff.line},${diff.insertionLines.length} @@ ${escapeHtml(diff.filePath)}</span>`;
     const beforeHtml = diff.contextBefore.map(l => `  ${escapeHtml(l)}`).join('\n');
-    const insertHtml = diff.insertionLines.map(l => `<span class="insertion">+ ${escapeHtml(l)}</span>`).join('');
+    const deletionHtml = (!diff.advisory && (diff.replaceLine || diff.replaceSpan) && diff.originalLine)
+        ? `<span class="deletion">- ${escapeHtml(diff.originalLine)}</span>`
+        : "";
+    const insertHtml = diff.advisory
+        ? diff.insertionLines.map(l => `  ${escapeHtml(l)}`).join('\n') + '\n'
+        : diff.insertionLines.map(l => `<span class="insertion">+ ${escapeHtml(l)}</span>`).join('');
     const afterHtml = diff.contextAfter.map(l => `  ${escapeHtml(l)}`).join('\n');
 
-    viewEl.innerHTML = `${beforeHtml}\n${insertHtml}${afterHtml}`;
+    viewEl.innerHTML = `${hunkHeader}${beforeHtml}\n${deletionHtml}${insertHtml}${afterHtml}`;
 }
 
 function runApkInspect() {

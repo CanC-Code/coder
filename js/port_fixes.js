@@ -196,9 +196,10 @@
     return origApprove();
   };
 
-  // 5. Clear the database that is actually used.
+  // 5. Clear the database that is actually used (canceling pending debounced saves).
   if (window.coderPersistence) {
     window.coderPersistence.clearSnapshot = async function () {
+      clearTimeout(this._saveTimer);
       try {
         const db = await window.coderPersistence.init();
         await new Promise(res => { const tx = db.transaction("session", "readwrite"); tx.objectStore("session").clear(); tx.oncomplete = res; tx.onerror = res; });
