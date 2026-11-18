@@ -251,6 +251,7 @@ function runApkInspect() {
 }
 
 function runPortAudit() {
+    const mipsParity = engine.analyzeMipsAssemblyParity(cachedFileTexts);
     const { html, synthesizedDiff } = engine.runFullPortAudit();
     appendAgentMessage(html);
     if (synthesizedDiff) {

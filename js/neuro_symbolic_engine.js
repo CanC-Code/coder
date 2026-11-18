@@ -2782,6 +2782,43 @@ ${stub.decompImpl.snippet}`
         };
     }
 
+
+    // --- MIPS Assembly to C Parity & Translation Analysis ---
+    analyzeMipsAssemblyParity(textsMap) {
+        const mipsSymbols = new Map();
+        const cSymbols = new Set();
+
+        for (const [path, src] of Object.entries(textsMap)) {
+            if (typeof src !== "string") continue;
+            if (/\.[sS]$/.test(path)) {
+                const labels = src.matchAll(/\b(?:glabel|\.ent)\s+([A-Za-z_]\w*)/g);
+                for (const l of labels) {
+                    if (!mipsSymbols.has(l[1])) mipsSymbols.set(l[1], []);
+                    mipsSymbols.get(l[1]).push(path);
+                }
+            } else if (/\.[cC]$/.test(path)) {
+                const cFuncs = src.matchAll(/^(?:static\s+)?(?:void|int|u32|s32|f32|char\*|bool|Vec3f|Matrix)\s+([A-Za-z_]\w*)\s*\(/gm);
+                for (const cf of cFuncs) {
+                    cSymbols.add(cf[1]);
+                }
+            }
+        }
+
+        const missingParity = [];
+        for (const [sym, paths] of mipsSymbols.entries()) {
+            if (sym.startsWith(".") || sym.startsWith("L_") || sym.startsWith("lbl_")) continue;
+            if (!cSymbols.has(sym)) {
+                missingParity.push({ symbol: sym, assemblyPaths: paths });
+            }
+        }
+
+        return {
+            totalMipsSymbols: mipsSymbols.size,
+            totalCFuncs: cSymbols.size,
+            missingParity
+        };
+    }
+
     importState(data) {
         if (!data) return;
         this.tau = data.tau || this.tau;
