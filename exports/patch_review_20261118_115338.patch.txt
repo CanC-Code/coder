@@ -1,0 +1,14 @@
+=== NEURO-SYMBOLIC CODER PATCH REVIEW BUNDLE ===
+Generated: 2026-11-18T11:53:38.215740
+Workspace: .
+Target: Diddy Kong Racing Android Port (aarch64)
+===================================================
+
+[SUMMARY]
+This bundle contains all synthesized infills, ABI fixes, and architecture adjustments 
+ready for verification against the Master Requirements List.
+
+[UNIFIED DIFF OUTPUT]
+
+===================================================
+END OF REVIEW BUNDLE
