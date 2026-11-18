@@ -107,12 +107,22 @@ async function ingestFilesInBatches(fileArray, isManual = false) {
     const critCount = engine.auditFindings.filter(f => f.severity === "CRITICAL").length;
     const highCount = engine.auditFindings.filter(f => f.severity === "HIGH").length;
 
-    appendAgentMessage(
-        `<strong>Android SDK, Packaging & Neuro-Symbolic Runtime Graph Ready:</strong><br>` +
-        `• <strong>APK & Build Structure:</strong> ${am.components.length} Manifest components, ${am.nativeTargets.length} native <code>.so</code> target(s), ${am.javaNativeMethods.length} JNI methods (${am.dynamicJniMethods.length} dynamic <code>RegisterNatives</code>), ${am.reverseJniLookups.length} reverse-JNI lookups, ${am.packagedAssets.length} asset/resource entries.<br>` +
-        `• <strong>Runtime Graph & Audit:</strong> ${engine.runtimeReachable.size} runtime-reachable symbols; <span style="color:#ff7b72;">${critCount} CRITICAL</span> and <span style="color:#d29922;">${highCount} HIGH</span> Android SDK/JNI/alignment findings.<br>` +
-        `• Tap <strong>APK & Runtime</strong>, <strong>Port Audit</strong>, or ask any Android SDK/NDK question or <code>trace &lt;file_or_symbol&gt;</code>.`
-    );
+    if (isManual) {
+        const manualBoxes = Array.from(engine.boxes.values()).filter(b => b.type === "manual_section").length;
+        const n64Terms = Object.values(engine.lexicon.dictionary).filter(d => d.domain === "n64_manual").length;
+        appendAgentMessage(
+            `<strong>Reference Manual Learned & Cross-Linked:</strong><br>` +
+            `• Indexed <strong>${manualBoxes}</strong> manual sections and learned <strong>${n64Terms}</strong> N64 SDK/hardware lexicon entries across <strong>${engine.tethers.length}</strong> total graph tethers.<br>` +
+            `• Query any N64 function, register, or hardware subsystem (e.g., <code>osPiStartDma</code>, <code>RSP microcode</code>, <code>VI framebuffer</code>) to retrieve manual excerpts and linked C/C++ code.`
+        );
+    } else {
+        appendAgentMessage(
+            `<strong>Android SDK, Packaging & Neuro-Symbolic Runtime Graph Ready:</strong><br>` +
+            `• <strong>APK & Build Structure:</strong> ${am.components.length} Manifest components, ${am.nativeTargets.length} native <code>.so</code> target(s), ${am.javaNativeMethods.length} JNI methods (${am.dynamicJniMethods.length} dynamic <code>RegisterNatives</code>), ${am.reverseJniLookups.length} reverse-JNI lookups, ${am.packagedAssets.length} asset/resource entries.<br>` +
+            `• <strong>Runtime Graph & Audit:</strong> ${engine.runtimeReachable.size} runtime-reachable symbols; <span style="color:#ff7b72;">${critCount} CRITICAL</span> and <span style="color:#d29922;">${highCount} HIGH</span> Android SDK/JNI/alignment findings.<br>` +
+            `• Tap <strong>APK & Runtime</strong>, <strong>Port Audit</strong>, or ask any Android SDK/NDK question or <code>trace &lt;file_or_symbol&gt;</code>.`
+        );
+    }
 }
 
 function renderTree(node, parentElement, prefix) {

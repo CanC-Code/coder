@@ -1307,32 +1307,101 @@ class NeuroSymbolicEngine {
     }
 
     async _ingestManualChunks(path, lines, fileBoxId, onProgress = null) {
-        const chunkSize = 50;
+        const chunkSize = 35;
+        const overlap = 5;
         let chunksSinceYield = 0;
-        for (let i = 0; i < lines.length; i += chunkSize) {
-            const chunkLines = lines.slice(i, i + chunkSize).filter(l => l.trim().length > 0);
+        let prevBoxId = null;
+        let learnedTerms = 0;
+
+        // Patterns for N64 SDK functions, registers, macros, and section headers
+        const fnProtoRe = /\b(?:void|s8|u8|s16|u16|s32|u32|s64|u64|f32|f64|int|char|OSMesg|OSTask|OSThread|OSPiHandle|Gfx|Vtx|Mtx|AL[A-Za-z0-9_]+)\s*\*?\s*([a-zA-Z_][a-zA-Z0-9_]{2,})\s*\(/;
+        const macroRegRe = /^(?:#define\s+)?([A-Z][A-Z0-9_]{2,})(?:\s+\(?0x[0-9a-fA-F]+\)?|\s+[-:=]\s+(.+))?$/;
+        const sdkSymbolRe = /\b((?:os|gu|gSP|gDP|al|nu|__os)[A-Za-z0-9_]{2,})\b/g;
+
+        for (let i = 0; i < lines.length; i += (chunkSize - overlap)) {
+            const rawSlice = lines.slice(i, i + chunkSize);
+            const chunkLines = rawSlice.filter(l => l.trim().length > 0);
             if (chunkLines.length === 0) continue;
-            const titleLine = chunkLines[0].trim().slice(0, 80);
-            const snippet = chunkLines.join('\n').slice(0, 750);
+
+            // Prefer a heading or prototype as the section title
+            const headingLine = chunkLines.find(l => /^(?:\d+(?:\.\d+)*\s+[A-Z]|[A-Z][A-Z0-9 _/-]{4,60}$|(?:os|gu|gSP|gDP|al)[A-Za-z0-9_]+)/.test(l.trim())) || chunkLines[0];
+            const titleLine = headingLine.trim().slice(0, 90);
+            const fullChunkText = chunkLines.join('\n');
+            const snippet = fullChunkText.slice(0, 2800);
             const boxId = `manual:${path}:${i + 1}`;
 
             this.addBox(new ConceptualBox(boxId, "manual_section", "n64_manual", "REFERENCE_DOC", {
                 name: titleLine,
                 filePath: path,
                 line: i + 1,
-                signature: `Manual Section (Lines ${i + 1}-${i + chunkLines.length})`,
+                signature: `Manual Section (Lines ${i + 1}-${i + rawSlice.length})`,
                 snippet,
                 packaging: "REFERENCE_DOC"
             }));
-            this.addTether(fileBoxId, boxId, 0.75, "documents");
 
-            for (const line of chunkLines) {
-                const sepIdx = line.indexOf(" - ");
-                if (sepIdx > 2 && sepIdx < 32) {
-                    const term = line.slice(0, sepIdx).trim();
-                    const def = line.slice(sepIdx + 3).trim();
-                    if (/^[a-zA-Z0-9_]+$/.test(term) && def.length > 8) {
-                        this.lexicon.learn(term, def, "n64_manual", [], [], path);
+            // Bidirectional tethers with parent manual and sequential neighbor chunks
+            this.addTether(fileBoxId, boxId, 0.75, "documents");
+            this.addTether(boxId, fileBoxId, 0.45, "part_of_manual");
+            if (prevBoxId) {
+                this.addTether(prevBoxId, boxId, 0.65, "next_section");
+                this.addTether(boxId, prevBoxId, 0.65, "prev_section");
+            }
+            prevBoxId = boxId;
+
+            const chunkContext = chunkLines.slice(0, 6).join(' ').replace(/\s+/g, ' ').slice(0, 260);
+            const chunkSymbols = new Set();
+
+            for (let idx = 0; idx < chunkLines.length; idx++) {
+                const line = chunkLines[idx].trim();
+                const nextContext = chunkLines.slice(idx, idx + 3).join(' ').replace(/\s+/g, ' ').slice(0, 240);
+
+                // 1. Glossary "TERM - Definition" or "TERM : Definition"
+                const sepMatch = line.match(/^([a-zA-Z_][a-zA-Z0-9_]{1,35})\s+[-:]\s+(.{8,})$/);
+                if (sepMatch) {
+                    this.lexicon.learn(sepMatch[1], sepMatch[2].slice(0, 260), "n64_manual", [], [], path);
+                    chunkSymbols.add(sepMatch[1].toLowerCase());
+                    learnedTerms++;
+                }
+
+                // 2. C function prototypes in manual
+                const fnMatch = line.match(fnProtoRe);
+                if (fnMatch && !["if", "for", "while", "switch", "return", "sizeof"].includes(fnMatch[1])) {
+                    this.lexicon.learn(fnMatch[1], `${line} — ${nextContext}`, "n64_manual", [], [], path);
+                    chunkSymbols.add(fnMatch[1].toLowerCase());
+                    learnedTerms++;
+                }
+
+                // 3. Hardware registers / #define constants
+                const regMatch = line.match(macroRegRe);
+                if (regMatch && regMatch[1].length >= 4 && !["NOTE", "WARNING", "EXAMPLE", "SYNTAX", "RETURN", "DESCRIPTION", "ARGUMENTS", "SEE"].includes(regMatch[1])) {
+                    const desc = regMatch[2] ? `${regMatch[1]}: ${regMatch[2]}` : `${line} — ${nextContext}`;
+                    this.lexicon.learn(regMatch[1], desc.slice(0, 260), "n64_manual", [], [], path);
+                    chunkSymbols.add(regMatch[1].toLowerCase());
+                    learnedTerms++;
+                }
+
+                // 4. Inline libultra / GBI / RSP / RDP symbols
+                sdkSymbolRe.lastIndex = 0;
+                let sm;
+                while ((sm = sdkSymbolRe.exec(line)) !== null) {
+                    const sym = sm[1];
+                    chunkSymbols.add(sym.toLowerCase());
+                    if (!this.lexicon.dictionary[sym.toLowerCase()]) {
+                        this.lexicon.learn(sym, `${titleLine}: ${nextContext || chunkContext}`, "n64_manual", [], [], path);
+                        learnedTerms++;
+                    }
+                }
+            }
+
+            // Cross-link manual section bidirectionally with any matching C/C++ codebase symbols
+            for (const symLower of chunkSymbols) {
+                const codeBoxes = this.symbolToBoxIds.get(symLower);
+                if (codeBoxes) {
+                    for (const cId of codeBoxes) {
+                        if (!cId.startsWith("manual:")) {
+                            this.addTether(boxId, cId, 0.85, "documents_symbol");
+                            this.addTether(cId, boxId, 0.85, "documented_in_manual");
+                        }
                     }
                 }
             }
@@ -1344,6 +1413,7 @@ class NeuroSymbolicEngine {
                 await new Promise(r => setTimeout(r, 0));
             }
         }
+        return { learnedTerms };
     }
 
     finalizeCrossReferences() {
@@ -1533,6 +1603,23 @@ class NeuroSymbolicEngine {
                 if (!this.runtimeReachable.has(cKey)) {
                     this.runtimeReachable.add(cKey);
                     queue.push(cKey);
+                }
+            }
+        }
+
+        // 9. Cross-link N64 manual sections with codebase C/C++ symbols bidirectionally
+        for (const [boxId, box] of this.boxes.entries()) {
+            if (box.type !== "manual_section" || !box.payload || !box.payload.snippet) continue;
+            const tokens = new Set(this.tokenize(box.payload.snippet));
+            for (const tok of tokens) {
+                if (tok.length < 4) continue;
+                const matches = this.symbolToBoxIds.get(tok);
+                if (!matches) continue;
+                for (const targetId of matches) {
+                    if (!targetId.startsWith("manual:")) {
+                        this.addTether(boxId, targetId, 0.82, "documents_symbol");
+                        this.addTether(targetId, boxId, 0.82, "documented_in_manual");
+                    }
                 }
             }
         }
@@ -1809,7 +1896,16 @@ class NeuroSymbolicEngine {
 
         if (q.split(/\s+/).length <= 3) {
             const directTrace = this.traceFileOrSymbol(queryText);
-            if (directTrace) return directTrace;
+            if (directTrace) {
+                const { activatedBoxes } = this.retrieveAndActivate(queryText, 4);
+                const manualHits = activatedBoxes.filter(b => b.type === "manual_section" && b.id !== `file:${b.payload.filePath}`);
+                if (manualHits.length > 0) {
+                    const topM = manualHits[0];
+                    const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                    directTrace.html += `<div style="margin-top:8px;padding:6px 8px;border-left:2px solid #58a6ff;background:rgba(88,166,255,0.08);"><strong>N64 Manual Reference (<code>${topM.payload.filePath}:${topM.payload.line}</code>):</strong><pre style="white-space:pre-wrap;margin:4px 0 0;font-size:11px;">${esc(topM.payload.snippet.slice(0, 650))}</pre></div>`;
+                }
+                return directTrace;
+            }
         }
 
         const { rawTokens, expandedTokens, activatedBoxes, activeTethers } = this.retrieveAndActivate(queryText);
@@ -1831,11 +1927,24 @@ class NeuroSymbolicEngine {
             }
         }
 
+        const matchedLexicon = rawTokens
+            .map(t => ({ term: t, entry: this.lexicon.dictionary[t] }))
+            .filter(x => x.entry && x.entry.domain === "n64_manual");
+        if (matchedLexicon.length > 0) {
+            for (const item of matchedLexicon.slice(0, 2)) {
+                html += `• <strong>[N64 Manual Lexicon: <code>${item.term}</code>]</strong> ${item.entry.definition}<br>`;
+            }
+        }
+
         if (workspaceBoxes.length > 0) {
+            const escHtml = s => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
             for (const box of workspaceBoxes.slice(0, 5)) {
                 const conf = Math.round(box.activation * 100);
                 const pkg = box.payload.packaging || box.execRole;
                 html += `• <code>${box.payload.filePath}:${box.payload.line}</code> — <strong>${box.payload.name}</strong> [<code>${pkg}</code>, ${conf}%]<br>`;
+                if (box.type === "manual_section" && box.payload.snippet) {
+                    html += `<pre style="white-space:pre-wrap;margin:4px 0 6px 14px;padding:6px 8px;border-left:2px solid #58a6ff;background:rgba(88,166,255,0.08);font-size:11px;">${escHtml(box.payload.snippet.slice(0, 700))}</pre>`;
+                }
             }
             if (activeTethers.length > 0) {
                 const edgeSummary = activeTethers.slice(0, 3).map(t => {
