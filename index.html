@@ -46,6 +46,8 @@
                     <div class="diff-content" id="diff-view">// Code, ingested N64 manual sections, or synthesized alignment fixes will appear here.</div>
                 </div>
                 <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                    <button onclick="stepFinding(-1)" style="background:#21262d;border:1px solid var(--border-color);color:var(--text-main);padding:8px 12px;border-radius:4px;font-size:12px;cursor:pointer;">&larr; Prev Finding</button>
+                    <button onclick="stepFinding(1)" style="background:#21262d;border:1px solid var(--border-color);color:var(--text-main);padding:8px 12px;border-radius:4px;font-size:12px;cursor:pointer;">Next Finding &rarr;</button>
                     <button class="btn-approve" onclick="approveAndSave()">Approve & Commit NDK/JNI Fix</button>
                 </div>
             </div>

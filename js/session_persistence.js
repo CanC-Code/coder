@@ -1,10 +1,10 @@
 /**
  * IndexedDB Auto-Persistence & Crash/Refresh Recovery Layer for Coder.
- * Automatically saves and restores the NeuroSymbolicEngine graph, file summaries,
- * audit findings, active diff, chat history, and FileSystemDirectoryHandle.
+ * Stores the NeuroSymbolicEngine graph, file summaries, cached source texts,
+ * approved patches, audit findings, active diff, and chat history.
  */
 class CoderPersistence {
-    constructor(dbName = "CoderNeuroSymbolicDB", version = 1) {
+    constructor(dbName = "CoderNeuroSymbolicDB", version = 2) {
         this.dbName = dbName;
         this.version = version;
         this.db = null;
@@ -68,18 +68,13 @@ class CoderPersistence {
             timestamp: Date.now(),
             engineState: engine.exportState(),
             fileSummaries: summariesObj,
+            cachedFileTexts: uiState.cachedFileTexts || {},
+            patchedContents: uiState.patchedContents || {},
             chatHtml: uiState.chatHtml || "",
             stagedDiff: uiState.stagedDiff || null,
-            workspaceName: uiState.workspaceName || ""
+            activeFindingIndex: uiState.activeFindingIndex || 0
         };
         await this.put("latest_snapshot", payload);
-        if (uiState.dirHandle) {
-            try {
-                await this.put("dir_handle", uiState.dirHandle);
-            } catch (_) {
-                // Ignore if browser restricts handle cloning
-            }
-        }
     }
 
     async restoreFullSession(engine) {
@@ -93,17 +88,14 @@ class CoderPersistence {
             }
             engine.finalizeCrossReferences();
         }
-        let dirHandle = null;
-        try {
-            dirHandle = await this.get("dir_handle");
-        } catch (_) {}
 
         return {
             timestamp: snap.timestamp,
+            cachedFileTexts: snap.cachedFileTexts || {},
+            patchedContents: snap.patchedContents || {},
             chatHtml: snap.chatHtml || "",
             stagedDiff: snap.stagedDiff || null,
-            workspaceName: snap.workspaceName || "",
-            dirHandle
+            activeFindingIndex: snap.activeFindingIndex || 0
         };
     }
 }

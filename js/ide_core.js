@@ -80,6 +80,9 @@ async function ingestFilesInBatches(fileArray, isManual = false) {
             }
             try {
                 const text = await item.file.text();
+                if (!isManual && text.length < 350000) {
+                    cachedFileTexts[item.path] = text;
+                }
                 engine.ingestDocument(item.path, text, isManual);
             } catch (err) {
                 if (!isManual) engine.registerNonTextAsset(item.path);
@@ -117,7 +120,7 @@ function renderTree(node, parentElement, prefix) {
 
     keys.forEach(key => {
         const val = node[key];
-        const isFile = val instanceof File;
+        const isFile = val instanceof File || (val && typeof val.text === 'function');
         const li = document.createElement('li');
         li.style.padding = '4px 6px';
         li.style.fontSize = '12px';
@@ -157,7 +160,7 @@ async function loadFileIntoEditor(path, fileObj) {
     document.getElementById('diff-view').textContent = "// Reading file contents...";
 
     try {
-        const text = patchedContents[path] !== undefined ? patchedContents[path] : await fileObj.text();
+        const text = patchedContents[path] !== undefined ? patchedContents[path] : (cachedFileTexts[path] !== undefined ? cachedFileTexts[path] : await fileObj.text());
         const sum = engine.fileSummaries.get(path);
         const pkgTag = sum ? ` [${sum.packaging}]` : "";
         document.getElementById('diff-file-title').textContent = `${path}${pkgTag} (${text.length} bytes)${patchedContents[path] ? " [PATCHED]" : ""}`;
@@ -348,17 +351,68 @@ function importSession(event) {
 window.addEventListener('DOMContentLoaded', updateStatusBar);
 
 
-// --- Resilient Session Auto-Restore & Continuous Snapshot Hooks ---
+// --- Resilient Session Auto-Restore, Offline Tree Rebuild & Finding Queue Navigation ---
+let cachedFileTexts = {};
+let activeFindingIndex = 0;
+
+function buildAndRenderTreeFromPaths(paths) {
+    const fileTreeEl = document.getElementById('file-tree');
+    if (!fileTreeEl) return;
+    fileTreeEl.innerHTML = '';
+    const root = {};
+    for (const relPath of paths) {
+        const parts = relPath.split('/');
+        let curr = root;
+        parts.forEach((part, idx) => {
+            if (!curr[part]) {
+                curr[part] = (idx === parts.length - 1)
+                    ? (workspaceFiles[relPath] || {
+                        name: part,
+                        text: async () => cachedFileTexts[relPath] || `// Cached workspace entry: ${relPath}\n// Click "Open Workspace" to mount live disk handles if needed.`
+                    })
+                    : {};
+            }
+            curr = curr[part];
+        });
+    }
+    renderTree(root, fileTreeEl, "");
+}
+
+function stageFindingAtIndex(idx) {
+    if (!engine.auditFindings || engine.auditFindings.length === 0) return;
+    activeFindingIndex = ((idx % engine.auditFindings.length) + engine.auditFindings.length) % engine.auditFindings.length;
+    const f = engine.auditFindings[activeFindingIndex];
+    const diff = {
+        filePath: f.filePath,
+        line: f.line,
+        symbolName: `[Finding ${activeFindingIndex + 1}/${engine.auditFindings.length}] ${f.category}`,
+        contextBefore: [`// [${f.severity}] ${f.category}`, `// Original: ${f.code}`],
+        insertionLines: f.fixSuggestion.split('\n'),
+        contextAfter: [`// Reason: ${f.reason}`]
+    };
+    renderSynthesizedDiff(diff);
+    if (window.triggerCoderSnapshot) window.triggerCoderSnapshot();
+}
+
+function stepFinding(delta) {
+    if (!engine.auditFindings || engine.auditFindings.length === 0) {
+        appendAgentMessage("No audit findings queued. Tap <strong>Port Audit</strong> to scan the workspace.");
+        return;
+    }
+    stageFindingAtIndex(activeFindingIndex + delta);
+}
+
 (function initResilientCoderSession() {
     if (!window.coderPersistence) return;
 
     const captureUiState = () => {
-        const chatBox = document.getElementById("chat-log") || document.getElementById("agent-output") || document.querySelector(".chat-messages");
+        const chatBox = document.getElementById("chat-messages");
         return {
+            cachedFileTexts,
+            patchedContents,
             chatHtml: chatBox ? chatBox.innerHTML : "",
-            stagedDiff: typeof currentStagedDiff !== "undefined" ? currentStagedDiff : null,
-            dirHandle: typeof rootDirHandle !== "undefined" ? rootDirHandle : null,
-            workspaceName: typeof rootDirHandle !== "undefined" && rootDirHandle ? rootDirHandle.name : ""
+            stagedDiff: typeof pendingDiff !== "undefined" ? pendingDiff : null,
+            activeFindingIndex
         };
     };
 
@@ -385,43 +439,34 @@ window.addEventListener('DOMContentLoaded', updateStatusBar);
         try {
             const restored = await window.coderPersistence.restoreFullSession(engine);
             if (restored && engine.fileSummaries && engine.fileSummaries.size > 0) {
-                // Rebuild virtual file map & folder tree from persisted engine.fileSummaries
+                cachedFileTexts = restored.cachedFileTexts || {};
+                patchedContents = restored.patchedContents || {};
+                activeFindingIndex = restored.activeFindingIndex || 0;
+
                 const paths = Array.from(engine.fileSummaries.keys()).sort();
-                if (typeof workspaceFiles !== "undefined" && workspaceFiles instanceof Map) {
-                    for (const p of paths) {
-                        if (!workspaceFiles.has(p)) workspaceFiles.set(p, { path: p, offlineCached: true });
+                for (const p of paths) {
+                    if (!workspaceFiles[p]) {
+                        workspaceFiles[p] = {
+                            name: p.split('/').pop(),
+                            text: async () => cachedFileTexts[p] || `// Cached workspace entry: ${p}`
+                        };
                     }
                 }
-                if (typeof ingestFilesInBatches === "function") {
-                    try { ingestFilesInBatches(paths); } catch (_) {}
-                } else {
-                    const treeEl = document.getElementById("file-tree") || document.getElementById("workspace-tree");
-                    if (treeEl) {
-                        const dirs = new Set();
-                        for (const p of paths) {
-                            const segs = p.split("/");
-                            if (segs.length > 1) dirs.add(segs.slice(0, 2).join("/"));
-                        }
-                        treeEl.innerHTML = `<div style="color:#4ade80;padding:6px 8px;font-size:12px;">&#9679; Offline Cached Workspace (${paths.length} files) &mdash; click Open Workspace anytime to re-grant disk write permissions</div>` +
-                            Array.from(dirs).sort().map(d => `<div style="padding:2px 12px;color:#eab308;font-size:12px;">&#128193; ${d}/</div>`).join("");
-                    }
-                }
-                const chatBox = document.getElementById("chat-log") || document.getElementById("agent-output") || document.querySelector(".chat-messages");
+                buildAndRenderTreeFromPaths(paths);
+
+                const chatBox = document.getElementById("chat-messages");
                 if (chatBox && restored.chatHtml) {
                     chatBox.innerHTML = restored.chatHtml;
+                    chatBox.scrollTop = chatBox.scrollHeight;
                 }
-                if (restored.stagedDiff && typeof renderStagedDiff === "function") {
-                    renderStagedDiff(restored.stagedDiff);
-                } else if (engine.auditFindings && engine.auditFindings.length > 0 && typeof stageFindingFix === "function") {
-                    stageFindingFix(engine.auditFindings[0]);
+                if (restored.stagedDiff && typeof renderSynthesizedDiff === "function") {
+                    renderSynthesizedDiff(restored.stagedDiff);
+                } else if (engine.auditFindings && engine.auditFindings.length > 0) {
+                    stageFindingAtIndex(activeFindingIndex);
                 }
-                if (typeof updateStatusBar === "function") {
-                    updateStatusBar();
-                }
-                if (typeof appendMessage === "function") {
-                    const when = new Date(restored.timestamp).toLocaleTimeString();
-                    appendMessage("agent", `<strong>Session Recovered (${when}):</strong> Automatically restored <code>${engine.fileSummaries.size}</code> workspace files, <code>${engine.boxes.size}</code> conceptual nodes, and <code>${engine.auditFindings.length}</code> audit findings from offline IndexedDB.`);
-                }
+                updateStatusBar();
+                const when = new Date(restored.timestamp).toLocaleTimeString();
+                appendAgentMessage(`<strong>Session & File Tree Recovered (${when}):</strong> Restored <code>${paths.length}</code> files, <code>${engine.boxes.size}</code> conceptual nodes, and <code>${engine.auditFindings.length}</code> findings from offline IndexedDB.`);
             }
         } catch (err) {
             console.warn("Session recovery skipped:", err);

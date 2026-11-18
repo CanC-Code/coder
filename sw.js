@@ -1,10 +1,12 @@
-const CACHE_NAME = "coder-offline-v2";
+const CACHE_NAME = "coder-offline-v3";
 const CORE_ASSETS = [
     "./",
     "./index.html",
+    "./css/theme.css",
     "./js/android_sdk_knowledge.js",
     "./js/session_persistence.js",
-    "./js/neuro_symbolic_engine.js"
+    "./js/neuro_symbolic_engine.js",
+    "./js/ide_core.js"
 ];
 
 self.addEventListener("install", (event) => {
