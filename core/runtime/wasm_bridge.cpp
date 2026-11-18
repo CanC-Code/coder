@@ -101,4 +101,42 @@ void analyze_rgba_framebuffer(const uint8_t* rgba, int width, int height, float*
     dst[7] = (float)(rowDiffSum / ((double)(height - 1) * width + 1.0));
 }
 
+
+// Deterministic Frame-to-Frame Reference Diff Kernel (v23)
+// Compares actual vs expected RGBA8888 buffers and writes 6 floats to out_diff:
+// [0]=meanColorDelta (0..1), [1]=changedPixelRatio (0..1),
+// [2]=topLeftDelta, [3]=topRightDelta, [4]=bottomLeftDelta, [5]=bottomRightDelta
+CODER_WASM_EXPORT
+void compare_rgba_frames(const uint8_t* actual, const uint8_t* expected, int width, int height, float* out_diff) {
+    float* dst = out_diff ? out_diff : s_wasm_metrics_buffer;
+    if (!actual || !expected || width <= 0 || height <= 0) return;
+
+    double total = (double)width * (double)height;
+    double deltaSum = 0.0, changed = 0.0;
+    double qSum[4] = {0.0, 0.0, 0.0, 0.0};
+    double qCnt[4] = {0.0, 0.0, 0.0, 0.0};
+    int halfW = width / 2, halfH = height / 2;
+
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            int idx = (y * width + x) * 4;
+            int dr = (int)actual[idx + 0] - (int)expected[idx + 0];
+            int dg = (int)actual[idx + 1] - (int)expected[idx + 1];
+            int db = (int)actual[idx + 2] - (int)expected[idx + 2];
+            double dist = sqrt((double)(dr * dr + dg * dg + db * db)) / 441.6729559;
+            deltaSum += dist;
+            if (dist > 0.04) changed += 1.0;
+            int q = (y >= halfH ? 2 : 0) + (x >= halfW ? 1 : 0);
+            qSum[q] += dist;
+            qCnt[q] += 1.0;
+        }
+    }
+
+    dst[0] = (float)(deltaSum / total);
+    dst[1] = (float)(changed / total);
+    for (int q = 0; q < 4; q++) {
+        dst[2 + q] = (float)(qCnt[q] > 0.0 ? (qSum[q] / qCnt[q]) : 0.0);
+    }
+}
+
 } // extern "C"

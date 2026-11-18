@@ -194,6 +194,43 @@ class CoderVisionAndRuntimeAnalyzer {
         return { html, synthesizedDiff };
     }
 
+
+    compareImageDataFrames(actualImgData, expectedImgData) {
+        const w = Math.min(actualImgData.width, expectedImgData.width);
+        const h = Math.min(actualImgData.height, expectedImgData.height);
+        const a = actualImgData.data, e = expectedImgData.data;
+        const total = Math.max(1, w * h);
+        let deltaSum = 0, changed = 0;
+        const qSum = [0, 0, 0, 0], qCnt = [0, 0, 0, 0];
+        const halfW = w >> 1, halfH = h >> 1;
+
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                const aIdx = (y * actualImgData.width + x) * 4;
+                const eIdx = (y * expectedImgData.width + x) * 4;
+                const dr = a[aIdx] - e[eIdx];
+                const dg = a[aIdx + 1] - e[eIdx + 1];
+                const db = a[aIdx + 2] - e[eIdx + 2];
+                const dist = Math.sqrt(dr * dr + dg * dg + db * db) / 441.6729559;
+                deltaSum += dist;
+                if (dist > 0.04) changed++;
+                const q = (y >= halfH ? 2 : 0) + (x >= halfW ? 1 : 0);
+                qSum[q] += dist;
+                qCnt[q]++;
+            }
+        }
+        return {
+            meanColorDelta: deltaSum / total,
+            changedPixelRatio: changed / total,
+            quadrants: {
+                topLeft: qCnt[0] ? qSum[0] / qCnt[0] : 0,
+                topRight: qCnt[1] ? qSum[1] / qCnt[1] : 0,
+                bottomLeft: qCnt[2] ? qSum[2] / qCnt[2] : 0,
+                bottomRight: qCnt[3] ? qSum[3] / qCnt[3] : 0
+            }
+        };
+    }
+
     isRuntimeCrashLog(text) {
         return /\b(?:SIGSEGV|SIGBUS|SIGABRT|SEGVDUMP|SEGV_MAPERR|SEGV_MTESERR|UnsatisfiedLinkError|NoSuchMethodError|Fatal signal 11|backtrace:|BKA-FILE|RDRAM-WRITE)\b/i.test(text);
     }
