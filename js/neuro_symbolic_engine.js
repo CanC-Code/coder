@@ -2582,6 +2582,53 @@ ${stub.decompImpl.snippet}`
     }
 
     runFullPortAudit() {
+        const parity = this.analyzeMipsAssemblyParity(this.cachedFileTexts || {});
+        const coveragePct = parity.totalMipsSymbols > 0 
+            ? ((1 - (parity.missingParity.length / parity.totalMipsSymbols)) * 100).toFixed(1) 
+            : 100.0;
+        
+        let mipsDashboardHtml = `<div class="audit-report" style="font-family: monospace; color: #d4d4d4; background: #1e1e1e; padding: 16px; border-radius: 8px; margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 12px; margin-bottom: 16px;">
+                <h2 style="margin: 0; color: #4ec9b0; font-size: 18px;">&#x1F9EE; MIPS-to-C Semantic Parity Dashboard</h2>
+                <span style="background: ${coveragePct > 80 ? '#2ea043' : '#d29922'}; color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 12px;">Parity Coverage: ${coveragePct}%</span>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px;">
+                <div style="background: #252526; padding: 12px; border-radius: 6px; border: 1px solid #333;">
+                    <div style="color: #858585; font-size: 11px;">TOTAL MIPS SYMBOLS</div>
+                    <div style="font-size: 20px; font-weight: bold; color: #569cd6; margin-top: 4px;">${parity.totalMipsSymbols}</div>
+                </div>
+                <div style="background: #252526; padding: 12px; border-radius: 6px; border: 1px solid #333;">
+                    <div style="color: #858585; font-size: 11px;">MAPPED C FUNCTIONS</div>
+                    <div style="font-size: 20px; font-weight: bold; color: #4ec9b0; margin-top: 4px;">${parity.totalCFuncs}</div>
+                </div>
+                <div style="background: #252526; padding: 12px; border-radius: 6px; border: 1px solid #333;">
+                    <div style="color: #858585; font-size: 11px;">UNPORTED ASSEMBLY STUBS</div>
+                    <div style="font-size: 20px; font-weight: bold; color: #f14c4c; margin-top: 4px;">${parity.missingParity.length}</div>
+                </div>
+            </div>
+
+            <h3 style="color: #9cdcfe; font-size: 14px; margin-bottom: 8px;">Unported MIPS Entry Points Requiring C Translation:</h3>
+            <div style="max-height: 250px; overflow-y: auto; background: #111; border: 1px solid #333; border-radius: 4px; padding: 8px;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 12px; text-align: left;">
+                    <thead>
+                        <tr style="border-bottom: 1px solid #333; color: #858585;">
+                            <th style="padding: 6px;">Symbol Name</th>
+                            <th style="padding: 6px;">Assembly File Path</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${parity.missingParity.length === 0 ? '<tr><td colspan="2" style="padding: 12px; text-align: center; color: #4ec9b0;">All MIPS assembly symbols have corresponding C implementations!</td></tr>' : parity.missingParity.map(m => `
+                            <tr style="border-bottom: 1px solid #222;">
+                                <td style="padding: 6px; color: #ce9178; font-weight: bold;">${m.symbol}</td>
+                                <td style="padding: 6px; color: #9cdcfe;">${m.assemblyPaths.join(', ')}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>`;
+
         if (this.boxes.size === 0) {
             return {
                 html: `<strong>Modern Android & Port Perfection Audit:</strong><br>No workspace mounted yet. Click <strong>Open Workspace</strong> to scan Manifest/Gradle/R8 rules, Compose/Lifecycle safety, JNI static & RegisterNatives bindings, 16 KB page-size alignment, and ARM64 LP64/MTE safety.`,
