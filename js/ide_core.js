@@ -797,3 +797,6 @@ function stepFinding(delta) {
         }
     });
 })();
+
+window.startNewChat = startNewChat;
+window.clearWorkspace = clearWorkspace;
