@@ -435,6 +435,9 @@ async function approveAndSave() {
     const updatedText = lines.join('\n');
 
     patchedContents[path] = updatedText;
+    if (window.syncPatchedFileToDisk) {
+        try { await window.syncPatchedFileToDisk(path, updatedText); } catch (_) {}
+    }
     engine.reinforceActiveTethers();
     updateStatusBar();
     if (window.triggerCoderSnapshot) window.triggerCoderSnapshot();

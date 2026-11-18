@@ -24,14 +24,19 @@ from core.compiler.clang_ast_extractor import extract_clang_ast_symbols
 
 
 def detect_default_repo():
-    candidates = [
-        os.path.expanduser("~/Diddy-Kong-Racing"),
-        os.path.expanduser("~/dkr-aarch64"),
-        os.path.expanduser("~/dkr"),
-    ]
-    for c in candidates:
-        if os.path.isdir(c):
-            return c
+    """Return ONLY an explicitly designated repo. Never scan $HOME."""
+    env_repo = os.environ.get("CODER_REPO", "").strip()
+    if env_repo and os.path.isdir(env_repo):
+        return os.path.abspath(env_repo)
+    cfg = os.path.join(CODER_ROOT, ".coder_repo")
+    if os.path.isfile(cfg):
+        try:
+            with open(cfg, "r", encoding="utf-8") as f:
+                designated = f.read().strip()
+            if designated and os.path.isdir(designated):
+                return os.path.abspath(designated)
+        except Exception:
+            pass
     return ""
 
 
@@ -229,7 +234,7 @@ class CoderBridgeHandler(SimpleHTTPRequestHandler):
 
             if task == "orchestrate":
                 try:
-                    from core.graph.host_orchestrator import HostOrchestrator
+                    from core.runtime.host_orchestrator import HostOrchestrator
                     orch = HostOrchestrator(repo)
                     count = orch.ingest_directory(".")
                     self._send_json(200, {

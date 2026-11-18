@@ -27,12 +27,7 @@
   }
 
   function getRepoPath() {
-    const saved = localStorage.getItem("coder_target_repo");
-    if (saved) return saved;
-    if (bridgeState.defaultRepo) return bridgeState.defaultRepo;
-    const entered = prompt("Enter local repo path on Termux (e.g. ~/Diddy-Kong-Racing):", "~/Diddy-Kong-Racing");
-    if (entered) localStorage.setItem("coder_target_repo", entered.trim());
-    return (entered || "").trim();
+    return (localStorage.getItem("coder_target_repo") || "").trim();
   }
 
   window.runLiveClangDiag = async function () {
@@ -119,7 +114,7 @@
 
   window.syncPatchedFileToDisk = async function (filePath, content) {
     if (!bridgeState.connected || !filePath || typeof content !== "string") return false;
-    const repo = localStorage.getItem("coder_target_repo") || bridgeState.defaultRepo;
+    const repo = localStorage.getItem("coder_target_repo") || "";
     if (!repo) return false;
     try {
       const resp = await fetch("/api/apply_patch", {
@@ -311,7 +306,7 @@ window.runPipelineTask = async function (task, label) {
     return;
   }
 
-  const repo = localStorage.getItem("coder_target_repo") || window.coderBridge.defaultRepo;
+  const repo = localStorage.getItem("coder_target_repo") || "";
   appendAgentMessage(`Running <strong>${label || task}</strong> on <code>${repo || "workspace"}</code>...`);
   try {
     const resp = await fetch("/api/pipeline", {
@@ -388,15 +383,15 @@ window.handleCrashLogUpload = async function (event) {
 function updateRepoPillDisplay() {
   const pill = document.getElementById("ns-repo-pill");
   if (!pill) return;
-  const repo = localStorage.getItem("coder_target_repo") || (window.coderBridge && window.coderBridge.defaultRepo) || "~/coder";
-  const shortName = repo.split("/").pop() || repo;
+  const repo = localStorage.getItem("coder_target_repo") || "";
+  const shortName = repo ? (repo.split("/").pop() || repo) : "not set";
   pill.textContent = `Repo: ${shortName}`;
-  pill.title = `Active Local Repository: ${repo} (Click to switch)`;
+  pill.title = repo ? `Active Local Repository: ${repo} (Click to switch)` : "No repository designated.";
 }
 
 window.promptSwitchRepo = function () {
-  const current = localStorage.getItem("coder_target_repo") || (window.coderBridge && window.coderBridge.defaultRepo) || "~/Diddy-Kong-Racing";
-  const entered = prompt("Enter target local repository path on Termux:", current);
+  const current = localStorage.getItem("coder_target_repo") || "";
+  const entered = prompt("Enter absolute Termux path of target repo:", current);
   if (entered !== null) {
     const clean = entered.trim();
     localStorage.setItem("coder_target_repo", clean);

@@ -83,3 +83,6 @@ if __name__ == "__main__":
     target = sys.argv[1] if len(sys.argv) > 1 else "."
     learner = DynamicLexiconLearner(target)
     learner.scan_and_learn(target)
+
+# Backwards-compatible alias used by core/runtime/host_orchestrator.py
+LexicalEngine = DynamicLexiconLearner
