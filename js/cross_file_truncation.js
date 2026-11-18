@@ -3,13 +3,43 @@
   "use strict";
 
   const RANK = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
-  const extraInt32Typedefs = new Set();
+  const BASE_INT32_RE = /^(?:s32|u32|int32_t|uint32_t|int|unsigned\s+int|long|unsigned\s+long)$/;
+  const resolvedInt32Typedefs = new Set();
   const astStructOverrides = new Map();
   const astParamOverrides = new Map();
 
+  function buildTransitiveInt32Typedefs(texts) {
+    const aliasToBase = new Map();
+    for (const [filePath, src] of Object.entries(texts)) {
+      if (typeof src !== "string" || !/\.(c|cc|cpp|cxx|h|hpp)$/i.test(filePath)) continue;
+      const cleanSrc = src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+      const re = /\btypedef\s+([^;{}]+?)\s+([A-Za-z_]\w*)\s*;/g;
+      let m;
+      while ((m = re.exec(cleanSrc)) !== null) {
+        const base = m[1].replace(/\b(?:const|volatile|struct|enum|union)\b/g, "").replace(/\s+/g, " ").trim();
+        const alias = m[2].trim();
+        if (alias && base && !base.includes("*")) {
+          aliasToBase.set(alias, base);
+        }
+      }
+    }
+    for (const alias of aliasToBase.keys()) {
+      let cur = alias;
+      const visited = new Set();
+      while (cur && !visited.has(cur)) {
+        visited.add(cur);
+        if (BASE_INT32_RE.test(cur) || resolvedInt32Typedefs.has(cur)) {
+          resolvedInt32Typedefs.add(alias);
+          break;
+        }
+        cur = aliasToBase.get(cur);
+      }
+    }
+  }
+
   window.ingestClangAstMetadata = function (ast) {
     if (!ast) return;
-    for (const td of (ast.resolved_int32_typedefs || [])) extraInt32Typedefs.add(td);
+    for (const td of (ast.resolved_int32_typedefs || [])) resolvedInt32Typedefs.add(td);
     for (const sf of (ast.ast_struct_fields || [])) {
       if (!astStructOverrides.has(sf.name)) astStructOverrides.set(sf.name, []);
       const list = astStructOverrides.get(sf.name);
@@ -23,13 +53,14 @@
   };
 
   function isInt32TypeName(t) {
-    const clean = String(t || "").replace(/\b(?:const|volatile|static|register)\b/g, "").trim();
-    if (/^(?:s32|u32|int32_t|uint32_t|int|unsigned\s+int)$/.test(clean)) return true;
-    return extraInt32Typedefs.has(clean);
+    const clean = String(t || "").replace(/\b(?:const|volatile|static|register)\b/g, "").replace(/\s+/g, " ").trim();
+    if (BASE_INT32_RE.test(clean)) return true;
+    return resolvedInt32Typedefs.has(clean);
   }
   const PTR_EXPR_RE = /(?:\(\s*[A-Za-z_]\w*\s*\)\s*(?:&?[A-Za-z_][\w.\->]*)|&[A-Za-z_][\w.\->]*|\b(?:malloc|calloc|realloc|mmap|bka_lookup_addr_by_low32)\s*\()/;
 
   function indexDeclarations(texts) {
+    buildTransitiveInt32Typedefs(texts);
     const structFields = new Map(); // fieldName -> [{ filePath, line, type, code }]
     const funcParams = new Map();   // funcName -> [{ filePath, line, params: [{ idx, name, type, isInt32 }], signature }]
 
