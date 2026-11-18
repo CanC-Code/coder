@@ -1,0 +1,462 @@
+{
+  "dictionary": {
+    "wasm_bridge.cpp": {
+      "definition": "file 'wasm_bridge.cpp' in core/runtime/wasm_bridge.cpp",
+      "domain": "source_file",
+      "timestamp": "2026-11-18T14:32:29.822439+00:00",
+      "confidence": 1.1,
+      "box_ids": [
+        "file:core/runtime/wasm_bridge.cpp"
+      ]
+    },
+    "source_file": {
+      "definition": "Derived synonym concept related to wasm_bridge.cpp.",
+      "domain": "source_file",
+      "timestamp": "2026-11-18T14:31:31.322289+00:00",
+      "confidence": 0.7,
+      "box_ids": [
+        "file:core/runtime/wasm_bridge.cpp"
+      ]
+    },
+    "file": {
+      "definition": "Derived synonym concept related to wasm_bridge.cpp.",
+      "domain": "source_file",
+      "timestamp": "2026-11-18T14:31:31.322289+00:00",
+      "confidence": 0.7,
+      "box_ids": [
+        "file:core/runtime/wasm_bridge.cpp"
+      ]
+    },
+    "stdint.h": {
+      "definition": "header 'stdint.h' in header",
+      "domain": "header",
+      "timestamp": "2026-11-18T14:32:29.822523+00:00",
+      "confidence": 1.1,
+      "box_ids": [
+        "header:stdint.h"
+      ]
+    },
+    "header": {
+      "definition": "Derived synonym concept related to stdint.h.",
+      "domain": "header",
+      "timestamp": "2026-11-18T14:31:31.322371+00:00",
+      "confidence": 0.7,
+      "box_ids": [
+        "header:stdint.h"
+      ]
+    },
+    "stddef.h": {
+      "definition": "header 'stddef.h' in header",
+      "domain": "header",
+      "timestamp": "2026-11-18T14:32:29.822584+00:00",
+      "confidence": 1.1,
+      "box_ids": [
+        "header:stddef.h"
+      ]
+    },
+    "math.h": {
+      "definition": "header 'math.h' in header",
+      "domain": "header",
+      "timestamp": "2026-11-18T14:32:29.822632+00:00",
+      "confidence": 1.1,
+      "box_ids": [
+        "header:math.h"
+      ]
+    },
+    "cstring": {
+      "definition": "header 'cstring' in header",
+      "domain": "header",
+      "timestamp": "2026-11-18T14:32:29.822673+00:00",
+      "confidence": 1.1,
+      "box_ids": [
+        "header:cstring"
+      ]
+    },
+    "emscripten/emscripten.h": {
+      "definition": "header 'emscripten/emscripten.h' in header",
+      "domain": "header",
+      "timestamp": "2026-11-18T14:32:29.822713+00:00",
+      "confidence": 1.1,
+      "box_ids": [
+        "header:emscripten/emscripten.h"
+      ]
+    },
+    "free_buffer": {
+      "definition": "function free_buffer at core/runtime/wasm_bridge.cpp:?",
+      "domain": "c_function",
+      "timestamp": "2026-11-18T14:32:29.822770+00:00",
+      "confidence": 1.1,
+      "box_ids": [
+        "sym:core/runtime/wasm_bridge.cpp:0:function:free_buffer"
+      ]
+    },
+    "c_function": {
+      "definition": "Derived synonym concept related to free_buffer.",
+      "domain": "c_function",
+      "timestamp": "2026-11-18T14:31:31.322616+00:00",
+      "confidence": 0.7,
+      "box_ids": [
+        "sym:core/runtime/wasm_bridge.cpp:0:function:free_buffer"
+      ]
+    },
+    "function": {
+      "definition": "Derived synonym concept related to free_buffer.",
+      "domain": "c_function",
+      "timestamp": "2026-11-18T14:31:31.322616+00:00",
+      "confidence": 0.7,
+      "box_ids": [
+        "sym:core/runtime/wasm_bridge.cpp:0:function:free_buffer"
+      ]
+    },
+    "analyze_rgba_framebuffer": {
+      "definition": "function analyze_rgba_framebuffer at core/runtime/wasm_bridge.cpp:?",
+      "domain": "c_function",
+      "timestamp": "2026-11-18T14:32:29.822825+00:00",
+      "confidence": 1.1,
+      "box_ids": [
+        "sym:core/runtime/wasm_bridge.cpp:0:function:analyze_rgba_framebuffer"
+      ]
+    },
+    "get_wasm_scratch_buffer": {
+      "definition": "function get_wasm_scratch_buffer at core/runtime/wasm_bridge.cpp:?",
+      "domain": "c_function",
+      "timestamp": "2026-11-18T14:32:29.822874+00:00",
+      "confidence": 1.1,
+      "box_ids": [
+        "sym:core/runtime/wasm_bridge.cpp:0:function:get_wasm_scratch_buffer"
+      ]
+    },
+    "get_wasm_scratch_capacity": {
+      "definition": "function get_wasm_scratch_capacity at core/runtime/wasm_bridge.cpp:?",
+      "domain": "c_function",
+      "timestamp": "2026-11-18T14:32:29.822921+00:00",
+      "confidence": 1.1,
+      "box_ids": [
+        "sym:core/runtime/wasm_bridge.cpp:0:function:get_wasm_scratch_capacity"
+      ]
+    },
+    "get_wasm_metrics_buffer": {
+      "definition": "function get_wasm_metrics_buffer at core/runtime/wasm_bridge.cpp:?",
+      "domain": "c_function",
+      "timestamp": "2026-11-18T14:32:29.822966+00:00",
+      "confidence": 1.1,
+      "box_ids": [
+        "sym:core/runtime/wasm_bridge.cpp:0:function:get_wasm_metrics_buffer"
+      ]
+    },
+    "allocate_buffer": {
+      "definition": "function allocate_buffer at core/runtime/wasm_bridge.cpp:?",
+      "domain": "c_function",
+      "timestamp": "2026-11-18T14:32:29.823013+00:00",
+      "confidence": 1.1,
+      "box_ids": [
+        "sym:core/runtime/wasm_bridge.cpp:0:function:allocate_buffer"
+      ]
+    },
+    "evaluate_tether_weight": {
+      "definition": "function evaluate_tether_weight at core/runtime/wasm_bridge.cpp:?",
+      "domain": "c_function",
+      "timestamp": "2026-11-18T14:32:29.823057+00:00",
+      "confidence": 1.1,
+      "box_ids": [
+        "sym:core/runtime/wasm_bridge.cpp:0:function:evaluate_tether_weight"
+      ]
+    },
+    "s_wasm_metrics_buffer": {
+      "definition": "global s_wasm_metrics_buffer at core/runtime/wasm_bridge.cpp:15 | type=static float",
+      "domain": "c_global",
+      "timestamp": "2026-11-18T14:32:29.823103+00:00",
+      "confidence": 1.1,
+      "box_ids": [
+        "sym:core/runtime/wasm_bridge.cpp:15:global:s_wasm_metrics_buffer"
+      ]
+    },
+    "c_global": {
+      "definition": "Derived synonym concept related to s_wasm_metrics_buffer.",
+      "domain": "c_global",
+      "timestamp": "2026-11-18T14:31:31.322939+00:00",
+      "confidence": 0.7,
+      "box_ids": [
+        "sym:core/runtime/wasm_bridge.cpp:15:global:s_wasm_metrics_buffer"
+      ]
+    },
+    "global": {
+      "definition": "Derived synonym concept related to s_wasm_metrics_buffer.",
+      "domain": "c_global",
+      "timestamp": "2026-11-18T14:31:31.322939+00:00",
+      "confidence": 0.7,
+      "box_ids": [
+        "sym:core/runtime/wasm_bridge.cpp:15:global:s_wasm_metrics_buffer"
+      ]
+    },
+    "coder_wasm_export": {
+      "definition": "macro_object CODER_WASM_EXPORT at core/runtime/wasm_bridge.cpp:10 | value=__attribute__((visibility(\"default\")))",
+      "domain": "c_macro_object",
+      "timestamp": "2026-11-18T14:32:29.823203+00:00",
+      "confidence": 1.3,
+      "box_ids": [
+        "sym:core/runtime/wasm_bridge.cpp:8:macro_object:CODER_WASM_EXPORT",
+        "sym:core/runtime/wasm_bridge.cpp:10:macro_object:CODER_WASM_EXPORT"
+      ]
+    },
+    "c_macro_object": {
+      "definition": "Derived synonym concept related to coder_wasm_export.",
+      "domain": "c_macro_object",
+      "timestamp": "2026-11-18T14:31:31.322991+00:00",
+      "confidence": 0.7,
+      "box_ids": [
+        "sym:core/runtime/wasm_bridge.cpp:8:macro_object:CODER_WASM_EXPORT"
+      ]
+    },
+    "macro_object": {
+      "definition": "Derived synonym concept related to coder_wasm_export.",
+      "domain": "c_macro_object",
+      "timestamp": "2026-11-18T14:31:31.322991+00:00",
+      "confidence": 0.7,
+      "box_ids": [
+        "sym:core/runtime/wasm_bridge.cpp:8:macro_object:CODER_WASM_EXPORT"
+      ]
+    }
+  },
+  "thesaurus": {
+    "wasm_bridge.cpp": {
+      "synonyms": [
+        "source_file",
+        "file"
+      ],
+      "antonyms": [],
+      "semantic_cluster": [
+        "core/runtime/wasm_bridge.cpp"
+      ]
+    },
+    "source_file": {
+      "synonyms": [
+        "wasm_bridge.cpp"
+      ],
+      "antonyms": [],
+      "semantic_cluster": []
+    },
+    "file": {
+      "synonyms": [
+        "wasm_bridge.cpp"
+      ],
+      "antonyms": [],
+      "semantic_cluster": []
+    },
+    "stdint.h": {
+      "synonyms": [
+        "header"
+      ],
+      "antonyms": [],
+      "semantic_cluster": [
+        "header"
+      ]
+    },
+    "header": {
+      "synonyms": [
+        "stdint.h",
+        "stddef.h",
+        "math.h",
+        "cstring",
+        "emscripten/emscripten.h"
+      ],
+      "antonyms": [],
+      "semantic_cluster": []
+    },
+    "stddef.h": {
+      "synonyms": [
+        "header"
+      ],
+      "antonyms": [],
+      "semantic_cluster": [
+        "header"
+      ]
+    },
+    "math.h": {
+      "synonyms": [
+        "header"
+      ],
+      "antonyms": [],
+      "semantic_cluster": [
+        "header"
+      ]
+    },
+    "cstring": {
+      "synonyms": [
+        "header"
+      ],
+      "antonyms": [],
+      "semantic_cluster": [
+        "header"
+      ]
+    },
+    "emscripten/emscripten.h": {
+      "synonyms": [
+        "header"
+      ],
+      "antonyms": [],
+      "semantic_cluster": [
+        "header"
+      ]
+    },
+    "free_buffer": {
+      "synonyms": [
+        "c_function",
+        "function"
+      ],
+      "antonyms": [],
+      "semantic_cluster": [
+        "function",
+        "core/runtime/wasm_bridge.cpp:?"
+      ]
+    },
+    "c_function": {
+      "synonyms": [
+        "free_buffer",
+        "analyze_rgba_framebuffer",
+        "get_wasm_scratch_buffer",
+        "get_wasm_scratch_capacity",
+        "get_wasm_metrics_buffer",
+        "allocate_buffer",
+        "evaluate_tether_weight"
+      ],
+      "antonyms": [],
+      "semantic_cluster": []
+    },
+    "function": {
+      "synonyms": [
+        "free_buffer",
+        "analyze_rgba_framebuffer",
+        "get_wasm_scratch_buffer",
+        "get_wasm_scratch_capacity",
+        "get_wasm_metrics_buffer",
+        "allocate_buffer",
+        "evaluate_tether_weight"
+      ],
+      "antonyms": [],
+      "semantic_cluster": []
+    },
+    "analyze_rgba_framebuffer": {
+      "synonyms": [
+        "c_function",
+        "function"
+      ],
+      "antonyms": [],
+      "semantic_cluster": [
+        "function",
+        "core/runtime/wasm_bridge.cpp:?"
+      ]
+    },
+    "get_wasm_scratch_buffer": {
+      "synonyms": [
+        "c_function",
+        "function"
+      ],
+      "antonyms": [],
+      "semantic_cluster": [
+        "function",
+        "core/runtime/wasm_bridge.cpp:?"
+      ]
+    },
+    "get_wasm_scratch_capacity": {
+      "synonyms": [
+        "c_function",
+        "function"
+      ],
+      "antonyms": [],
+      "semantic_cluster": [
+        "function",
+        "core/runtime/wasm_bridge.cpp:?"
+      ]
+    },
+    "get_wasm_metrics_buffer": {
+      "synonyms": [
+        "c_function",
+        "function"
+      ],
+      "antonyms": [],
+      "semantic_cluster": [
+        "function",
+        "core/runtime/wasm_bridge.cpp:?"
+      ]
+    },
+    "allocate_buffer": {
+      "synonyms": [
+        "c_function",
+        "function"
+      ],
+      "antonyms": [],
+      "semantic_cluster": [
+        "function",
+        "core/runtime/wasm_bridge.cpp:?"
+      ]
+    },
+    "evaluate_tether_weight": {
+      "synonyms": [
+        "c_function",
+        "function"
+      ],
+      "antonyms": [],
+      "semantic_cluster": [
+        "function",
+        "core/runtime/wasm_bridge.cpp:?"
+      ]
+    },
+    "s_wasm_metrics_buffer": {
+      "synonyms": [
+        "c_global",
+        "global"
+      ],
+      "antonyms": [],
+      "semantic_cluster": [
+        "global",
+        "core/runtime/wasm_bridge.cpp:15",
+        "type=static",
+        "float"
+      ]
+    },
+    "c_global": {
+      "synonyms": [
+        "s_wasm_metrics_buffer"
+      ],
+      "antonyms": [],
+      "semantic_cluster": []
+    },
+    "global": {
+      "synonyms": [
+        "s_wasm_metrics_buffer"
+      ],
+      "antonyms": [],
+      "semantic_cluster": []
+    },
+    "coder_wasm_export": {
+      "synonyms": [
+        "c_macro_object",
+        "macro_object"
+      ],
+      "antonyms": [],
+      "semantic_cluster": [
+        "macro_object",
+        "core/runtime/wasm_bridge.cpp:8",
+        "value=emscripten_keepalive",
+        "core/runtime/wasm_bridge.cpp:10",
+        "value=__attribute__((visibility(\"default\""
+      ]
+    },
+    "c_macro_object": {
+      "synonyms": [
+        "coder_wasm_export"
+      ],
+      "antonyms": [],
+      "semantic_cluster": []
+    },
+    "macro_object": {
+      "synonyms": [
+        "coder_wasm_export"
+      ],
+      "antonyms": [],
+      "semantic_cluster": []
+    }
+  },
+  "last_updated": "2026-11-18T14:32:29.823310+00:00"
+}

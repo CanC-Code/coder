@@ -1,43 +1,69 @@
-#include <emscripten/emscripten.h>
-#include <stdint.h>
-#include <cstring>
-
-extern "C" {
-
-  // Allocate shared linear memory buffer for zero-copy file/AST passing
-  EMSCRIPTEN_KEEPALIVE
-  uint8_t* allocate_buffer(size_t size) {
-      return new uint8_t[size];
-  }
-
-  EMSCRIPTEN_KEEPALIVE
-  void free_buffer(uint8_t* ptr) {
-      delete[] ptr;
-  }
-
-  // Process conceptual box tethers and validate node activation threshold (tau)
-  EMSCRIPTEN_KEEPALIVE
-  float evaluate_tether_weight(float base_weight, float reinforcement_factor) {
-      float adjusted = base_weight * reinforcement_factor;
-      return (adjusted > 1.0f) ? 1.0f : adjusted;
-  }
-
-}
-
-
 #include <stdint.h>
 #include <stddef.h>
 #include <math.h>
+#include <cstring>
+
+#ifdef __EMSCRIPTEN__
+#include <emscripten/emscripten.h>
+#define CODER_WASM_EXPORT EMSCRIPTEN_KEEPALIVE
+#else
+#define CODER_WASM_EXPORT __attribute__((visibility("default")))
+#endif
+
+// Pre-allocated static linear memory arena (4 MB scratch + 16-float telemetry buffer)
+// Enables zero-copy JS/Python Wasm interop without requiring libc malloc/free exports.
+static uint8_t s_wasm_scratch_arena[4 * 1024 * 1024];
+static float   s_wasm_metrics_buffer[16];
 
 extern "C" {
 
+CODER_WASM_EXPORT
+uint8_t* get_wasm_scratch_buffer() {
+    return s_wasm_scratch_arena;
+}
+
+CODER_WASM_EXPORT
+size_t get_wasm_scratch_capacity() {
+    return sizeof(s_wasm_scratch_arena);
+}
+
+CODER_WASM_EXPORT
+float* get_wasm_metrics_buffer() {
+    return s_wasm_metrics_buffer;
+}
+
+CODER_WASM_EXPORT
+uint8_t* allocate_buffer(size_t size) {
+    if (size <= sizeof(s_wasm_scratch_arena)) {
+        return s_wasm_scratch_arena;
+    }
+    return new uint8_t[size];
+}
+
+CODER_WASM_EXPORT
+void free_buffer(uint8_t* ptr) {
+    if (ptr && ptr != s_wasm_scratch_arena) {
+        delete[] ptr;
+    }
+}
+
+// Process conceptual box tethers and validate node activation threshold (tau)
+CODER_WASM_EXPORT
+float evaluate_tether_weight(float base_weight, float reinforcement_factor) {
+    float adjusted = base_weight * reinforcement_factor;
+    return (adjusted > 1.0f) ? 1.0f : adjusted;
+}
+
 // Deterministic Wasm Vision Inspector: analyzes RGBA8888 screenshot pixels for
 // channel/endian swap, viewport clipping, Y-inversion, and scanline stride tearing.
-// Writes 8 float metrics to out_metrics:
+// Writes 8 float metrics to out_metrics (defaults to s_wasm_metrics_buffer if null):
 // [0]=nonBlackRatio, [1]=redBlueRatio, [2]=greenDominance, [3]=topHalfEnergy,
 // [4]=bottomHalfEnergy, [5]=leftHalfEnergy, [6]=rightHalfEnergy, [7]=rowStrideTearScore
+CODER_WASM_EXPORT
 void analyze_rgba_framebuffer(const uint8_t* rgba, int width, int height, float* out_metrics) {
-    if (!rgba || !out_metrics || width <= 0 || height <= 0) return;
+    float* dst = out_metrics ? out_metrics : s_wasm_metrics_buffer;
+    if (!rgba || width <= 0 || height <= 0) return;
+
     double total = (double)width * (double)height;
     double nonBlack = 0.0, sumR = 0.0, sumG = 0.0, sumB = 0.0;
     double topE = 0.0, botE = 0.0, leftE = 0.0, rightE = 0.0;
@@ -65,14 +91,14 @@ void analyze_rgba_framebuffer(const uint8_t* rgba, int width, int height, float*
         }
     }
 
-    out_metrics[0] = (float)(nonBlack / total);
-    out_metrics[1] = (float)((sumR + 1.0) / (sumB + 1.0));
-    out_metrics[2] = (float)((sumG + 1.0) / (0.5 * (sumR + sumB) + 1.0));
-    out_metrics[3] = (float)(topE / (total * 0.5));
-    out_metrics[4] = (float)(botE / (total * 0.5));
-    out_metrics[5] = (float)(leftE / (total * 0.5));
-    out_metrics[6] = (float)(rightE / (total * 0.5));
-    out_metrics[7] = (float)(rowDiffSum / ((double)(height - 1) * width + 1.0));
+    dst[0] = (float)(nonBlack / total);
+    dst[1] = (float)((sumR + 1.0) / (sumB + 1.0));
+    dst[2] = (float)((sumG + 1.0) / (0.5 * (sumR + sumB) + 1.0));
+    dst[3] = (float)(topE / (total * 0.5));
+    dst[4] = (float)(botE / (total * 0.5));
+    dst[5] = (float)(leftE / (total * 0.5));
+    dst[6] = (float)(rightE / (total * 0.5));
+    dst[7] = (float)(rowDiffSum / ((double)(height - 1) * width + 1.0));
 }
 
 } // extern "C"
