@@ -1899,6 +1899,84 @@ ${stub.decompImpl.snippet}`
         return { html, fileEdits };
     }
 
+
+    traceSymbolDeep(rawSymbol) {
+        const sym = String(rawSymbol).replace(/^&/, "").trim();
+        const symLower = sym.toLowerCase();
+        let html = `<strong>Deep Trace Report for <code>${sym}</code>:</strong><br>`;
+        let foundAny = false;
+
+        // Tier 1 — Macro / constant table
+        try {
+            if (this.macroTable) {
+                const direct = this.macroTable.get(sym);
+                const lower = direct ? null : Array.from(this.macroTable.entries()).find(([k]) => k.toLowerCase() === symLower)?.[1];
+                const hit = direct || lower;
+                if (hit) {
+                    foundAny = true;
+                    const val = (hit.value ?? hit.definition ?? '');
+                    html += `• <strong>Macro / Constant:</strong> <code>#define ${sym} ${val}</code> in <code>${hit.filePath || '?'}:${hit.line || '?'}</code><br>`;
+                }
+            }
+        } catch (e) {}
+
+        // Tier 2 — Indexed AST symbol table
+        try {
+            if (this.symbolToBoxIds && this.boxes) {
+                const ids = this.symbolToBoxIds.get(symLower) || [];
+                const boxes = ids.map(id => this.boxes.get(id)).filter(Boolean);
+                if (boxes.length) {
+                    foundAny = true;
+                    html += `• <strong>Indexed Symbols (${boxes.length}):</strong><br>`;
+                    for (const b of boxes.slice(0, 6)) {
+                        const p = b.payload || {};
+                        html += `&nbsp;&nbsp;- <code>${p.name || '?'}</code> (${b.type || '?'}) in <code>${p.filePath || '?'}:${p.line || '?'}</code><br>`;
+                    }
+                }
+            }
+        } catch (e) {}
+
+        // Tier 3 + 4 — Workspace-wide substring scan across every boxed payload
+        const occs = [];
+        const seen = new Set();
+        try {
+            if (this.boxes) {
+                for (const b of this.boxes.values()) {
+                    const p = b.payload || {};
+                    const hay = [p.signature, p.name, p.snippet, p.body, p.text, p.rawText]
+                        .filter(x => typeof x === 'string')
+                        .join(' ')
+                        .toLowerCase();
+                    if (hay.includes(symLower)) {
+                        const key = `${p.filePath || '?'}:${p.line || 0}`;
+                        if (!seen.has(key)) {
+                            seen.add(key);
+                            occs.push({
+                                filePath: p.filePath || '?',
+                                line: p.line || 0,
+                                snippet: String(p.signature || p.snippet || p.name || p.body || '').slice(0, 120)
+                            });
+                        }
+                    }
+                }
+            }
+        } catch (e) {}
+
+        if (occs.length) {
+            foundAny = true;
+            html += `• <strong>Code References & Definitions (${occs.length}):</strong><br>`;
+            for (const o of occs.slice(0, 8)) {
+                html += `&nbsp;&nbsp;- <code>${o.filePath}:${o.line}</code>: <code>${o.snippet}</code><br>`;
+            }
+        }
+
+        if (!foundAny) {
+            html += `<em>No exact matches for '<code>${sym}</code>' in indexed AST symbols, macros, or workspace snippets.</em>`;
+        }
+
+        return { html, synthesizedDiff: null };
+    }
+
     runStubParityReport() {
         if (this.stubCatalog.length === 0) {
             return {
@@ -2532,6 +2610,16 @@ ${stub.decompImpl.snippet}`
     }
 
     analyzeAndRespond(queryText) {
+        // v15: Deep symbol trace dispatch — intercepts "trace <symbol>"
+        {
+            const _qStr = (typeof queryText === "string") ? queryText.trim() : "";
+            const _m = _qStr.match(/^trace\s+(.+)$/i) || _qStr.match(/\btrace\s+([A-Za-z_&][\w&]*)\b/i);
+            if (_m && _m[1]) {
+                const _target = _m[1].replace(/^&/, "").trim();
+                if (_target) return this.traceSymbolDeep(_target);
+            }
+        }
+
         const q = queryText.toLowerCase();
 
         if (q.startsWith("trace ") || q.startsWith("inspect ") || q.includes("who calls") || q.includes("usages of") || q.includes("dependencies of")) {
