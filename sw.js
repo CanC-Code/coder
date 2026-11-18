@@ -1,4 +1,4 @@
-const CACHE_NAME = "coder-offline-v13";
+const CACHE_NAME = "coder-offline-v14";
 const CORE_ASSETS = [
     "./",
     "./index.html",

@@ -557,6 +557,53 @@ async function exportUnifiedPatch() {
     appendAgentMessage(`<strong>Exported Unified Git Patch:</strong> Downloaded <code>coder-port-fixes.patch</code> covering <strong>${paths.length}</strong> modified file(s). Apply with <code>git apply</code>.`);
 }
 
+function startNewChat() {
+    const log = document.getElementById('chat-log');
+    if (log) {
+        log.innerHTML = '';
+    }
+    pendingDiff = null;
+    activeFindingIndex = -1;
+    const diffTitle = document.getElementById('diff-file-title');
+    const diffView = document.getElementById('diff-view');
+    if (diffTitle) diffTitle.textContent = 'No active insertion staged';
+    if (diffView) diffView.textContent = '// Code, ingested N64 manual sections, or synthesized alignment fixes will appear here.';
+    appendAgentMessage('Started a new chat session. Mounted workspace files, ingested manuals, and conceptual graph remain active.');
+    if (window.triggerCoderSnapshot) window.triggerCoderSnapshot();
+}
+
+async function clearWorkspace() {
+    const clearManualsToo = confirm("Clear mounted workspace, staged patches, and saved session?\n\nClick OK to keep your ingested N64 manuals, or Cancel to wipe everything including manuals.");
+    workspaceFiles = {};
+    patchedContents = {};
+    fileLineOffsets = {};
+    for (const k of Object.keys(cachedFileTexts)) delete cachedFileTexts[k];
+    pendingDiff = null;
+    activeFindingIndex = -1;
+
+    engine.resetWorkspace(!clearManualsToo);
+
+    const treeEl = document.getElementById('file-tree');
+    if (treeEl) {
+        treeEl.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:8px;">Mount your N64 decomp &amp; Android wrapper directory to index AST symbols, JNI bridges, and 64-bit alignment hazards.</div>';
+    }
+    const diffTitle = document.getElementById('diff-file-title');
+    const diffView = document.getElementById('diff-view');
+    if (diffTitle) diffTitle.textContent = 'No active insertion staged';
+    if (diffView) diffView.textContent = '// Code, ingested N64 manual sections, or synthesized alignment fixes will appear here.';
+
+    if (window.coderPersistence && typeof window.coderPersistence.clearSnapshot === "function") {
+        try { await window.coderPersistence.clearSnapshot(); } catch (e) {}
+    } else if (typeof indexedDB !== "undefined") {
+        try { indexedDB.deleteDatabase("CoderIDE_DB"); } catch (e) {}
+    }
+
+    startNewChat();
+    if (window.triggerCoderSnapshot) window.triggerCoderSnapshot();
+    updateStatusBar();
+    appendAgentMessage(`<strong>Workspace Cleared:</strong> Unloaded workspace files and staged diffs${clearManualsToo ? " (ingested N64 manuals preserved)" : " (all manuals & snapshots wiped)"}.`);
+}
+
 function exportSession() {
     const sessionData = {
         timestamp: new Date().toISOString(),
