@@ -27,8 +27,9 @@ function hideProgress() {
 }
 
 async function handleFolderSelect(event) {
-    const files = event.target.files;
-    if (!files || files.length === 0) return;
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (files.length === 0) return;
 
     workspaceFiles = {};
     patchedContents = {};
@@ -83,7 +84,10 @@ async function ingestFilesInBatches(fileArray, isManual = false) {
                 if (!isManual && text.length < 350000) {
                     cachedFileTexts[item.path] = text;
                 }
-                engine.ingestDocument(item.path, text, isManual);
+                await engine.ingestDocument(item.path, text, isManual, (pct) => {
+                    showProgress(`Ingesting ${item.path}: ${pct}%...`);
+                    updateStatusBar();
+                });
             } catch (err) {
                 if (!isManual) engine.registerNonTextAsset(item.path);
             }
@@ -171,8 +175,9 @@ async function loadFileIntoEditor(path, fileObj) {
 }
 
 async function handleManualsIngest(event) {
-    const files = event.target.files;
-    if (!files || files.length === 0) return;
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (files.length === 0) return;
 
     const fileArray = Array.from(files).map(f => ({ path: f.name, file: f }));
     appendAgentMessage(`Ingesting <strong>${fileArray.length}</strong> reference manual(s) into semantic memory and bidirectional lexicon...`);
@@ -351,6 +356,7 @@ function importSession(event) {
 window.addEventListener('DOMContentLoaded', updateStatusBar);
 
 
+updateStatusBar();
 // --- Resilient Session Auto-Restore, Offline Tree Rebuild & Finding Queue Navigation ---
 let cachedFileTexts = {};
 let activeFindingIndex = 0;

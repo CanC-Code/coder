@@ -441,8 +441,7 @@ class NeuroSymbolicEngine {
         ));
 
         if (isManual) {
-            this._ingestManualChunks(path, lines, fileBoxId);
-            return;
+            return this._ingestManualChunks(path, lines, fileBoxId, arguments[3] || null);
         }
 
         if (packaging === "PACKAGED_ASSET") {
@@ -1307,8 +1306,9 @@ class NeuroSymbolicEngine {
         }
     }
 
-    _ingestManualChunks(path, lines, fileBoxId) {
-        const chunkSize = 35;
+    async _ingestManualChunks(path, lines, fileBoxId, onProgress = null) {
+        const chunkSize = 50;
+        let chunksSinceYield = 0;
         for (let i = 0; i < lines.length; i += chunkSize) {
             const chunkLines = lines.slice(i, i + chunkSize).filter(l => l.trim().length > 0);
             if (chunkLines.length === 0) continue;
@@ -1335,6 +1335,13 @@ class NeuroSymbolicEngine {
                         this.lexicon.learn(term, def, "n64_manual", [], [], path);
                     }
                 }
+            }
+
+            chunksSinceYield++;
+            if (chunksSinceYield >= 12) {
+                chunksSinceYield = 0;
+                if (onProgress) onProgress(Math.min(100, Math.round(((i + chunkSize) / Math.max(1, lines.length)) * 100)));
+                await new Promise(r => setTimeout(r, 0));
             }
         }
     }
