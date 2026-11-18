@@ -175,6 +175,158 @@
     return sections.length > 0 ? { tableOffset: assetsStart, sectionCount: count, sections } : null;
   }
 
+  function decompressYaz0(bytes, offset) {
+    if (offset + 16 > bytes.length) return null;
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (view.getUint32(offset, false) !== 0x59617A30) return null;
+    const uncompSize = view.getUint32(offset + 4, false);
+    if (uncompSize === 0 || uncompSize > 16 * 1024 * 1024) return null;
+    const dst = new Uint8Array(uncompSize);
+    let srcPos = offset + 16;
+    let dstPos = 0;
+    let validBits = 0;
+    let codeByte = 0;
+
+    while (dstPos < uncompSize && srcPos < bytes.length) {
+      if (validBits === 0) {
+        codeByte = bytes[srcPos++];
+        validBits = 8;
+      }
+      if ((codeByte & 0x80) !== 0) {
+        dst[dstPos++] = bytes[srcPos++];
+      } else {
+        if (srcPos + 1 >= bytes.length) break;
+        const b1 = bytes[srcPos++];
+        const b2 = bytes[srcPos++];
+        const dist = (((b1 & 0x0F) << 8) | b2) + 1;
+        let copyLen = (b1 >>> 4) + 2;
+        if (copyLen === 2) {
+          if (srcPos >= bytes.length) break;
+          copyLen = bytes[srcPos++] + 0x12;
+        }
+        let copySrc = dstPos - dist;
+        if (copySrc < 0) break;
+        for (let i = 0; i < copyLen && dstPos < uncompSize; i++) {
+          dst[dstPos++] = dst[copySrc++];
+        }
+      }
+      codeByte <<= 1;
+      validBits--;
+    }
+    return dst.subarray(0, dstPos);
+  }
+
+  function buildTarArchive(entries) {
+    // Standard 512-byte POSIX UStar TAR builder (zero dependencies, works offline on GitHub Pages)
+    const enc = new TextEncoder();
+    const blocks = [];
+    for (const entry of entries) {
+      const data = entry.data instanceof Uint8Array ? entry.data : new Uint8Array(entry.data);
+      const header = new Uint8Array(512);
+      const nameBytes = enc.encode(entry.name.slice(0, 99));
+      header.set(nameBytes, 0);
+      header.set(enc.encode("0000644\0"), 100);
+      header.set(enc.encode("0000000\0"), 108);
+      header.set(enc.encode("0000000\0"), 116);
+      header.set(enc.encode(data.length.toString(8).padStart(11, "0") + "\0"), 124);
+      header.set(enc.encode(Math.floor(Date.now() / 1000).toString(8).padStart(11, "0") + "\0"), 136);
+      header.fill(0x20, 148, 156);
+      header[156] = 0x30; // '0' regular file
+      header.set(enc.encode("ustar\x0000"), 257);
+
+      let chksum = 0;
+      for (let i = 0; i < 512; i++) chksum += header[i];
+      header.set(enc.encode(chksum.toString(8).padStart(6, "0") + "\0 "), 148);
+
+      blocks.push(header);
+      blocks.push(data);
+      const pad = (512 - (data.length % 512)) % 512;
+      if (pad > 0) blocks.push(new Uint8Array(pad));
+    }
+    blocks.push(new Uint8Array(1024)); // End-of-archive zero blocks
+    const totalLen = blocks.reduce((acc, b) => acc + b.length, 0);
+    const out = new Uint8Array(totalLen);
+    let pos = 0;
+    for (const b of blocks) {
+      out.set(b, pos);
+      pos += b.length;
+    }
+    return out;
+  }
+
+  window.downloadExtractedRomBundle = function () {
+    const rom = window.lastAnalyzedRom;
+    if (!rom || !rom._normalizedBytes) {
+      appendAgentMessage("<strong>No ROM loaded:</strong> Load an N64 ROM first.");
+      return;
+    }
+    const bytes = rom._normalizedBytes;
+    const entries = [];
+    const manifest = {
+      title: rom.title,
+      gameCode: rom.gameCode,
+      sha1: rom.sha1,
+      crc1: rom.crc1,
+      crc2: rom.crc2,
+      cicChip: rom.cicChip,
+      extractedFiles: []
+    };
+
+    if (rom.assetTable && rom.assetTable.sections.length > 0) {
+      for (const sec of rom.assetTable.sections) {
+        if (sec.size <= 0 || (sec.romOffset + sec.size) > bytes.length) continue;
+        const slice = bytes.subarray(sec.romOffset, sec.romOffset + sec.size);
+        const yaz0 = decompressYaz0(bytes, sec.romOffset);
+        const fname = `assets/section_${String(sec.index).padStart(3, "0")}_0x${sec.romOffset.toString(16)}.bin`;
+        const payload = yaz0 || slice;
+        entries.push({ name: fname, data: payload });
+        manifest.extractedFiles.push({
+          file: fname,
+          romOffset: sec.romOffset,
+          rawSize: sec.size,
+          extractedSize: payload.length,
+          decompressedYaz0: Boolean(yaz0)
+        });
+      }
+    } else if (rom.structures && rom.structures.compressedBlocks.length > 0) {
+      for (let i = 0; i < rom.structures.compressedBlocks.length; i++) {
+        const blk = rom.structures.compressedBlocks[i];
+        const nextOff = (i + 1 < rom.structures.compressedBlocks.length)
+          ? rom.structures.compressedBlocks[i + 1].offset
+          : Math.min(bytes.length, blk.offset + 256 * 1024);
+        const yaz0 = blk.tag === "Yaz0" ? decompressYaz0(bytes, blk.offset) : null;
+        const rawSlice = bytes.subarray(blk.offset, Math.max(blk.offset + 16, nextOff));
+        const payload = yaz0 || rawSlice;
+        const fname = `blocks/${blk.tag.toLowerCase()}_${String(i).padStart(4, "0")}_0x${blk.offset.toString(16)}.bin`;
+        entries.push({ name: fname, data: payload });
+        manifest.extractedFiles.push({
+          file: fname,
+          tag: blk.tag,
+          romOffset: blk.offset,
+          extractedSize: payload.length,
+          decompressedYaz0: Boolean(yaz0)
+        });
+      }
+    } else {
+      // Fallback: export normalized big-endian .z64 image + header manifest
+      entries.push({ name: `${rom.gameCode || "rom"}_normalized.z64`, data: bytes });
+      manifest.extractedFiles.push({ file: `${rom.gameCode || "rom"}_normalized.z64`, extractedSize: bytes.length });
+    }
+
+    entries.unshift({ name: "manifest.json", data: new TextEncoder().encode(JSON.stringify(manifest, null, 2)) });
+    const tarBytes = buildTarArchive(entries);
+    const blob = new Blob([tarBytes], { type: "application/x-tar" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${(rom.gameCode || "n64_rom").toLowerCase()}_extracted_assets.tar`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    appendAgentMessage(`<strong>Browser Extraction Complete:</strong> Downloaded <code>${a.download}</code> (${entries.length - 1} extracted binary asset(s) + <code>manifest.json</code>).`);
+  };
+
   window.handleRomSelect = async function (event) {
     const file = event.target.files && event.target.files[0];
     if (!file) return;
@@ -224,6 +376,7 @@
         crc2,
         cicChip,
         sha1,
+        _normalizedBytes: bytes,
         matchedProfile,
         assetTable,
         structures
@@ -275,9 +428,12 @@
         html += `• <strong>Source-to-ROM Cross-References:</strong><br>` + crossRefNotes.map(n => `&nbsp;&nbsp;- ${n}`).join("<br>") + `<br>`;
       }
 
-      if (window.coderBridge && window.coderBridge.connected) {
-        html += `<button type="button" onclick="triggerBridgeRomExtract('${matchedProfile && (matchedProfile.version || matchedProfile.dkr_version) ? (matchedProfile.version || matchedProfile.dkr_version) : ""}')" style="margin-top:6px;background:#238636;border:none;color:white;padding:5px 10px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;">Extract Assets via Termux Bridge</button>`;
-      }
+      html += `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">` +
+        `<button type="button" onclick="downloadExtractedRomBundle()" style="background:#1f6feb;border:none;color:white;padding:5px 10px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;">Download Extracted Assets (.tar)</button>` +
+        ((window.coderBridge && window.coderBridge.connected)
+          ? `<button type="button" onclick="triggerBridgeRomExtract('${matchedProfile && (matchedProfile.version || matchedProfile.dkr_version) ? (matchedProfile.version || matchedProfile.dkr_version) : ""}')" style="background:#238636;border:none;color:white;padding:5px 10px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;">Extract Assets via Termux Bridge</button>`
+          : "") +
+        `</div>`;
 
       appendAgentMessage(html);
       if (stagedDiff && typeof renderSynthesizedDiff === "function") {
