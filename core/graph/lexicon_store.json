@@ -458,5 +458,7 @@
       "semantic_cluster": []
     }
   },
-  "last_updated": "2026-11-18T14:32:29.823310+00:00"
+  "last_updated": "2026-11-18T14:32:29.823310+00:00",
+  "discovered_functions": {},
+  "custom_types": []
 }
