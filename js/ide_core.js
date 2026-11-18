@@ -72,7 +72,7 @@ async function handleFolderSelect(event) {
 async function ingestFilesInBatches(fileArray, isManual = false) {
     const batchSize = 25;
     let processed = 0;
-    const textExtensions = new Set(["c", "cpp", "cc", "cxx", "h", "hpp", "s", "asm", "java", "kt", "py", "js", "gradle", "kts", "xml", "mk", "cmake", "txt", "md", "sh", "json", "properties", "toml", "pro"]);
+    const textExtensions = new Set(["c", "cpp", "cc", "cxx", "h", "hpp", "s", "asm", "java", "kt", "py", "js", "gradle", "kts", "xml", "mk", "cmake", "txt", "md", "sh", "json", "properties", "toml", "pro", "yaml", "yml", "inc", "inl", "glsl", "vert", "frag", "def"]);
 
     for (let i = 0; i < fileArray.length; i += batchSize) {
         const batch = fileArray.slice(i, i + batchSize);
@@ -90,9 +90,7 @@ async function ingestFilesInBatches(fileArray, isManual = false) {
                     return;
                 }
                 const storageKey = isManual ? `manuals/${item.path}` : item.path;
-                if (text.length < 2000000) {
-                    cachedFileTexts[storageKey] = text;
-                }
+                cachedFileTexts[storageKey] = text;
                 if (isManual) {
                     workspaceFiles[storageKey] = item.file;
                 }

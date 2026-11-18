@@ -2141,7 +2141,7 @@ ${stub.decompImpl.snippet}`
             "R8 Full-Mode Reverse-JNI Strip Risk",
             "Emulator vs Game Framebuffer Resolution Mismatch"
         ]);
-        this.auditFindings = this.auditFindings.filter(f => !xrefTitles.has(f.title));
+        this.auditFindings = this.auditFindings.filter(f => !xrefTitles.has(f.category || f.title));
         let sumLen = 0;
         for (const len of this.docLengths.values()) sumLen += len;
         this.avgDocLength = this.totalDocs > 0 ? sumLen / this.totalDocs : 1;
@@ -2286,6 +2286,21 @@ ${stub.decompImpl.snippet}`
                     bindingType.startsWith("Dynamic") ? "binds_jni_dynamic" : "binds_jni"
                 );
             } else {
+                // Full-workspace normalized fallback check for multi-line JNICALL\nJava_... definitions
+                const textsMap = typeof cachedFileTexts !== "undefined" ? cachedFileTexts : {};
+                let foundFile = null;
+                for (const [fp, src] of Object.entries(textsMap)) {
+                    if (typeof src === "string" && /\.(?:c|cc|cpp|cxx|h|hpp)$/i.test(fp) && src.includes(jniMethod.expectedJniSymbol)) {
+                        foundFile = fp;
+                        break;
+                    }
+                }
+                if (foundFile) {
+                    jniMethod.boundCBoxId = `file:${foundFile}`;
+                    jniMethod.bindingType = "Static JNI Export";
+                    this.addTether(`file:${jniMethod.filePath}`, `file:${foundFile}`, 0.95, "binds_jni");
+                    continue;
+                }
                 this.auditFindings.push({
                     severity: "CRITICAL",
                     category: "Unresolved JNI Native Binding",
