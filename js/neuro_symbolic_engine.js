@@ -194,6 +194,8 @@ class NeuroSymbolicEngine {
         this.outgoingTethers = new Map(); // sourceId -> Tether[]
         this.tetherIndex = new Set(); // "src->tgt:rel"
         this.symbolTypes = new Map(); // "StructName.field" or "varName" -> declared C type
+        this.macroTable = new Map();  // MACRO_NAME -> { value, numericVal, filePath, line, domain }
+        this.stubCatalog = [];        // { name, signature, stubReason, filePath, line, endLine, decompImpl, manualDoc, callersCount }
         this.lexicon = new BidirectionalLexicon();
 
         this.invertedIndex = new Map();
@@ -282,6 +284,8 @@ class NeuroSymbolicEngine {
         this.outgoingTethers.clear();
         this.tetherIndex.clear();
         this.symbolTypes.clear();
+        this.macroTable.clear();
+        this.stubCatalog = [];
         this.invertedIndex.clear();
         this.docLengths.clear();
         this.symbolToBoxIds.clear();
@@ -532,6 +536,43 @@ class NeuroSymbolicEngine {
                 continue;
             }
 
+            // Learn #define macros, GBI/F3DDKR opcodes, and hardware constants from ingested headers & sources
+            if (trimmed.startsWith("#define ")) {
+                const defMatch = trimmed.match(/^#define\s+([A-Za-z_][A-Za-z0-9_]*)(?:\(([^)]*)\))?\s+(.+)$/);
+                if (defMatch) {
+                    const mName = defMatch[1];
+                    const mParams = defMatch[2];
+                    const mBody = defMatch[3].replace(/\/\/.*$/, "").replace(/\/\*.*?\*\//g, "").trim();
+                    const numMatch = mBody.match(/^\(?(0x[0-9a-fA-F]+|\d+)[uUlL]*\)?$/);
+                    const numericVal = numMatch ? Number(numMatch[1]) : null;
+                    this.macroTable.set(mName, { value: mBody, numericVal, params: mParams || null, filePath: path, line: i + 1, domain });
+
+                    if (/^(?:G_|F3D|DKR_|OS_|VI_|AI_|PI_|SP_|DP_|FB_|SCREEN_|BKA_)/.test(mName) || numericVal !== null) {
+                        const boxId = `macro:${path}:${i + 1}:${mName}`;
+                        this.addBox(new ConceptualBox(boxId, "symbol", domain, execRole, {
+                            name: mName,
+                            filePath: path,
+                            line: i + 1,
+                            signature: trimmed.slice(0, 140),
+                            snippet: lines.slice(Math.max(0, i - 1), Math.min(lines.length, i + 4)).join('\n'),
+                            packaging
+                        }));
+                        this.addTether(fileBoxId, boxId, 0.78, "defines");
+                        if (execRole !== "OFFLINE_BUILD_TOOL" || path.includes("include/")) {
+                            this.lexicon.learn(
+                                mName,
+                                `Macro ${mName}${mParams !== undefined ? `(${mParams})` : ""} = ${mBody.slice(0, 140)} (${path}:${i + 1})`,
+                                domain,
+                                mName.startsWith("G_") ? ["gbi", "f3ddkr", "opcode"] : [],
+                                [],
+                                path
+                            );
+                        }
+                    }
+                }
+                continue;
+            }
+
             const scMatch = trimmed.match(structClassRegex);
             if (scMatch) {
                 const symName = scMatch[1];
@@ -575,6 +616,49 @@ class NeuroSymbolicEngine {
                     packaging
                 }));
                 this.addTether(fileBoxId, boxId, 0.9, "defines");
+
+                // Detect no-op / dummy / stub functions in Android native targets
+                if (["c", "cpp", "cc", "cxx"].includes(ext) && execRole !== "OFFLINE_BUILD_TOOL") {
+                    let braceDepth = 0;
+                    let foundOpen = false;
+                    let endLine = i;
+                    const bodyLines = [];
+                    for (let j = i; j < Math.min(lines.length, i + 30); j++) {
+                        const bl = lines[j];
+                        for (const ch of bl) {
+                            if (ch === "{") { braceDepth++; foundOpen = true; }
+                            else if (ch === "}") { braceDepth--; }
+                        }
+                        if (j > i) bodyLines.push(bl.trim());
+                        endLine = j;
+                        if (foundOpen && braceDepth <= 0) break;
+                    }
+                    const bodyJoined = bodyLines.join(" ").replace(/\/\*.*?\*\//g, "").replace(/\/\/.*$/gm, "").replace(/[{}]/g, "").trim();
+                    const isStubFile = /stub/i.test(path);
+                    const hasStubMarker = /\b(?:STUB|TODO|FIXME|UNIMPLEMENTED|DUMMY|NOOP|NO-OP)\b/i.test(lines.slice(i, endLine + 1).join(" "));
+                    const isTrivialBody = foundOpen && (
+                        bodyJoined === "" ||
+                        /^return(?:\s+(?:0|NULL|nullptr|-1|false|true|1))?\s*;$/i.test(bodyJoined) ||
+                        /^\(\s*void\s*\)\s*[a-zA-Z0-9_]+\s*;\s*(?:return(?:\s+(?:0|NULL|nullptr|-1))?\s*;)?$/i.test(bodyJoined)
+                    );
+                    if (isStubFile || hasStubMarker || isTrivialBody) {
+                        const stubReason = isTrivialBody
+                            ? (bodyJoined === "" ? "Empty no-op function body" : `Trivial dummy return (${bodyJoined})`)
+                            : (hasStubMarker ? "Explicit STUB/TODO marker in implementation" : "Defined inside stub translation unit");
+                        this.stubCatalog.push({
+                            name: fnName,
+                            signature: trimmed,
+                            stubReason,
+                            filePath: path,
+                            line: i + 1,
+                            endLine: endLine + 1,
+                            originalLines: lines.slice(i, endLine + 1),
+                            decompImpl: null,
+                            manualDoc: null,
+                            callersCount: 0
+                        });
+                    }
+                }
 
                 if (execRole !== "OFFLINE_BUILD_TOOL") {
                     this.lexicon.learn(
@@ -1273,6 +1357,7 @@ class NeuroSymbolicEngine {
                     line: i + 1,
                     code: trimmed,
                     reason: `Confirmed pointer/address expression (${confirmedPtrExprs.join(", ")}) cast to 32-bit integer; truncates upper 32 bits on aarch64 and strips ARM64 MTE/TBI pointer tags, causing immediate SIGSEGV.`,
+                    replaceLine: true,
                     fixSuggestion: fixedLine
                 });
             }
@@ -1285,6 +1370,7 @@ class NeuroSymbolicEngine {
                     line: i + 1,
                     code: trimmed,
                     reason: "NDK r27+ removes compile-time PAGE_SIZE and Android 15-17 devices use 16 KB (16384) pages. Replace hardcoded 4096/0x1000/PAGE_SIZE with sysconf(_SC_PAGESIZE).",
+                    replaceLine: true,
                     fixSuggestion: trimmed.replace(/\b(?:4096|0x1000|PAGE_SIZE)\b/g, "(size_t)sysconf(_SC_PAGESIZE)")
                 });
             }
@@ -1309,6 +1395,7 @@ class NeuroSymbolicEngine {
                     line: i + 1,
                     code: trimmed,
                     reason: "'long' is 32-bit on N64 MIPS (ILP32) but 64-bit on Android aarch64 (LP64), shifting struct offsets and corrupting binary asset/save layouts.",
+                    replaceLine: true,
                     fixSuggestion: trimmed.replace(/\bunsigned\s+long\b/, "uint32_t").replace(/\blong\b/, "int32_t")
                 });
             }
@@ -1461,6 +1548,364 @@ class NeuroSymbolicEngine {
         return { learnedTerms };
     }
 
+    _analyzeStubsAgainstDecompAndManual() {
+        for (const stub of this.stubCatalog) {
+            const symLower = stub.name.toLowerCase();
+            const cg = this.callGraph.get(symLower);
+            stub.callersCount = cg ? Array.from(cg.callers.values()).reduce((a, b) => a + b.length, 0) : 0;
+            stub.isRuntimeReachable = this.runtimeReachable.has(symLower) || stub.callersCount > 0;
+
+            // Find non-stub implementation elsewhere in the workspace (e.g., Diddy-Kong-Racing/src/ or libultra)
+            const candidateBoxIds = this.symbolToBoxIds.get(symLower) || [];
+            for (const bId of candidateBoxIds) {
+                const box = this.boxes.get(bId);
+                if (!box || !box.payload) continue;
+                if (box.payload.filePath !== stub.filePath && !/stub/i.test(box.payload.filePath) && box.type !== "manual_section") {
+                    stub.decompImpl = {
+                        filePath: box.payload.filePath,
+                        line: box.payload.line,
+                        signature: box.payload.signature,
+                        snippet: box.payload.snippet
+                    };
+                    this.addTether(`fn:${stub.filePath}:${stub.line}:${stub.name}`, bId, 0.9, "stubs_decomp_symbol");
+                    break;
+                }
+            }
+
+            // Check N64 Manual lexicon / manual_section
+            const lexEntry = this.lexicon.dictionary[symLower];
+            if (lexEntry && (lexEntry.domain === "n64_manual" || lexEntry.domain.startsWith("n64_"))) {
+                stub.manualDoc = lexEntry.definition;
+            }
+
+            // Surface high-impact runtime-reachable stubs in auditFindings with synthesized implementation guidance
+            if (stub.isRuntimeReachable && (stub.decompImpl || stub.manualDoc || stub.callersCount >= 2)) {
+                const refNote = stub.decompImpl
+                    ? `Decomp reference at ${stub.decompImpl.filePath}:${stub.decompImpl.line}`
+                    : (stub.manualDoc ? `N64 Manual: ${stub.manualDoc.slice(0, 140)}` : `${stub.callersCount} active runtime call site(s)`);
+                const synthesizedBody = stub.decompImpl
+                    ? `// [Ported from ${stub.decompImpl.filePath}:${stub.decompImpl.line}]
+${stub.decompImpl.snippet}`
+                    : `${stub.signature} {
+    // [N64 Spec] ${(stub.manualDoc || stub.stubReason).slice(0, 160)}
+    // TODO: Wire to Android bridge (gN64_RDRAM / bka_lookup_addr_by_low32 / Oboe)
+}`;
+
+                this.auditFindings.push({
+                    severity: stub.callersCount >= 3 ? "HIGH" : "MEDIUM",
+                    category: "Runtime-Reachable Native Stub",
+                    filePath: stub.filePath,
+                    line: stub.line,
+                    endLine: stub.endLine,
+                    replaceSpan: true,
+                    code: stub.signature,
+                    reason: `'${stub.name}' is called ${stub.callersCount} time(s) on the active runtime path but is currently a stub (${stub.stubReason}). ${refNote}.`,
+                    fixSuggestion: synthesizedBody
+                });
+            }
+        }
+    }
+
+    _computeRelativeInclude(fromFilePath, toFilePath) {
+        const fromParts = fromFilePath.split('/').slice(0, -1);
+        const toParts = toFilePath.split('/');
+        let common = 0;
+        while (common < fromParts.length && common < toParts.length - 1 && fromParts[common] === toParts[common]) {
+            common++;
+        }
+        const ups = Array(fromParts.length - common).fill('..');
+        const rel = [...ups, ...toParts.slice(common)].join('/');
+        return rel || toParts[toParts.length - 1];
+    }
+
+    planFileMove(oldQuery, newPath, getFileText) {
+        const allPaths = Array.from(this.fileSummaries.keys());
+        const oldPath = allPaths.find(p => p === oldQuery || p.endsWith(`/${oldQuery}`));
+        if (!oldPath) {
+            return { html: `<strong>File Move Error:</strong> Could not find <code>${oldQuery}</code> in mounted workspace.`, fileEdits: [] };
+        }
+        const cleanNewPath = newPath.trim().replace(/^\/+/, "");
+        const oldBase = oldPath.split('/').pop();
+        const fileEdits = [];
+        const updatedRefs = [];
+
+        // 1. Move file content itself (oldPath -> deleted, cleanNewPath -> created)
+        const origContent = getFileText(oldPath);
+        fileEdits.push({ filePath: oldPath, action: "delete", newText: null, summary: `Delete old path ${oldPath}` });
+        fileEdits.push({ filePath: cleanNewPath, action: "create", newText: origContent, summary: `Create new path ${cleanNewPath}` });
+
+        // 2. Rewrite #include directives in every dependent file
+        for (const [p, sum] of this.fileSummaries.entries()) {
+            if (p === oldPath) continue;
+            const text = getFileText(p);
+            if (!text) continue;
+            let modified = false;
+            const nextLines = text.split('\n').map((line, idx) => {
+                const m = line.match(/^(\s*#include\s+")([^"]+)(".*)$/);
+                if (m && (m[2].endsWith(`/${oldBase}`) || m[2] === oldBase)) {
+                    const newInc = this._computeRelativeInclude(p, cleanNewPath);
+                    modified = true;
+                    updatedRefs.push(`<code>${p}:${idx + 1}</code>: <code>#include "${m[2]}"</code> &rarr; <code>#include "${newInc}"</code>`);
+                    return `${m[1]}${newInc}${m[3]}`;
+                }
+                return line;
+            });
+            if (modified) {
+                fileEdits.push({ filePath: p, action: "modify", newText: nextLines.join('\n'), summary: `Update #include to ${cleanNewPath}` });
+            }
+        }
+
+        // 3. Rewrite explicit source paths in CMakeLists.txt / Android.mk
+        for (const buildPath of this.androidModel.cmakeFiles) {
+            const bText = getFileText(buildPath);
+            if (!bText) continue;
+            const buildDir = buildPath.includes('/') ? buildPath.slice(0, buildPath.lastIndexOf('/')) : '';
+            const relOld = buildDir && oldPath.startsWith(`${buildDir}/`) ? oldPath.slice(buildDir.length + 1) : oldBase;
+            const relNew = buildDir && cleanNewPath.startsWith(`${buildDir}/`) ? cleanNewPath.slice(buildDir.length + 1) : cleanNewPath;
+            if (bText.includes(relOld)) {
+                const updatedBuild = bText.split(relOld).join(relNew);
+                fileEdits.push({ filePath: buildPath, action: "modify", newText: updatedBuild, summary: `Update build recipe ${relOld} -> ${relNew}` });
+                updatedRefs.push(`<code>${buildPath}</code>: <code>${relOld}</code> &rarr; <code>${relNew}</code>`);
+            }
+        }
+
+        const html = `<strong>Cross-File Move & Reference Refactor Staged:</strong><br>` +
+            `• Moved <code>${oldPath}</code> &rarr; <code>${cleanNewPath}</code><br>` +
+            `• Automatically updated <strong>${updatedRefs.length}</strong> dependent reference(s) across <strong>${fileEdits.length}</strong> total file operations:<br>` +
+            (updatedRefs.length > 0 ? updatedRefs.slice(0, 8).map(r => `&nbsp;&nbsp;- ${r}`).join('<br>') + '<br>' : '') +
+            `• Tap <strong>Export .patch</strong> to download the multi-file <code>git apply</code> refactor.`;
+        return { html, fileEdits };
+    }
+
+    planFileDelete(targetQuery, getFileText) {
+        const allPaths = Array.from(this.fileSummaries.keys());
+        const targetPath = allPaths.find(p => p === targetQuery || p.endsWith(`/${targetQuery}`));
+        if (!targetPath) {
+            return { html: `<strong>File Delete Error:</strong> Could not find <code>${targetQuery}</code> in mounted workspace.`, fileEdits: [] };
+        }
+        const baseName = targetPath.split('/').pop();
+        const fileEdits = [{ filePath: targetPath, action: "delete", newText: null, summary: `Delete ${targetPath}` }];
+        const cleanedRefs = [];
+
+        for (const [p] of this.fileSummaries.entries()) {
+            if (p === targetPath) continue;
+            const text = getFileText(p);
+            if (!text) continue;
+            let modified = false;
+            const filtered = text.split('\n').filter((line, idx) => {
+                const m = line.match(/^\s*#include\s+"([^"]+)"/);
+                if (m && (m[1].endsWith(`/${baseName}`) || m[1] === baseName)) {
+                    modified = true;
+                    cleanedRefs.push(`Removed dead include in <code>${p}:${idx + 1}</code>`);
+                    return false;
+                }
+                return true;
+            });
+            if (modified) {
+                fileEdits.push({ filePath: p, action: "modify", newText: filtered.join('\n'), summary: `Remove #include "${baseName}"` });
+            }
+        }
+
+        for (const buildPath of this.androidModel.cmakeFiles) {
+            const bText = getFileText(buildPath);
+            if (!bText) continue;
+            const buildDir = buildPath.includes('/') ? buildPath.slice(0, buildPath.lastIndexOf('/')) : '';
+            const relTarget = buildDir && targetPath.startsWith(`${buildDir}/`) ? targetPath.slice(buildDir.length + 1) : baseName;
+            if (bText.includes(relTarget)) {
+                const nextBuild = bText.split('\n').filter(l => !l.includes(relTarget)).join('\n');
+                fileEdits.push({ filePath: buildPath, action: "modify", newText: nextBuild, summary: `Remove ${relTarget} from build` });
+                cleanedRefs.push(`Removed build target entry in <code>${buildPath}</code>`);
+            }
+        }
+
+        const html = `<strong>Cross-File Deletion & Reference Cleanup Staged:</strong><br>` +
+            `• Marked <code>${targetPath}</code> for deletion and cleaned <strong>${cleanedRefs.length}</strong> dependent reference(s):<br>` +
+            (cleanedRefs.length > 0 ? cleanedRefs.slice(0, 8).map(r => `&nbsp;&nbsp;- ${r}`).join('<br>') + '<br>' : '') +
+            `• Tap <strong>Export .patch</strong> to apply cleanly with <code>git apply</code>.`;
+        return { html, fileEdits };
+    }
+
+    planStubUnification(getFileText) {
+        const stubFiles = Array.from(this.fileSummaries.keys()).filter(p =>
+            /stub/i.test(p) && /\.(c|cpp|cc|cxx)$/i.test(p) && !p.includes("/tools/")
+        );
+        if (stubFiles.length === 0) {
+            return { html: `<strong>Stub Unification:</strong> No stub C/C++ translation units found in mounted workspace.`, fileEdits: [] };
+        }
+
+        const primaryCppDir = stubFiles[0].includes("/cpp/")
+            ? stubFiles[0].slice(0, stubFiles[0].indexOf("/cpp/") + 4)
+            : stubFiles[0].split('/').slice(0, -1).join('/');
+        const unifiedPath = `${primaryCppDir}/dkr_unified_stubs.cpp`;
+
+        const seenSymbols = new Set();
+        const unifiedBlocks = [
+            `// Auto-Unified Android N64/DKR Stubs (Consolidated from ${stubFiles.length} translation units)`,
+            `#include <stdint.h>`,
+            `#include <stddef.h>`,
+            `#include <android/log.h>`,
+            ``,
+            `#ifdef __cplusplus`,
+            `extern "C" {`,
+            `#endif`,
+            ``
+        ];
+
+        let deduplicatedCount = 0;
+        for (const sf of stubFiles) {
+            const text = getFileText(sf);
+            if (!text) continue;
+            unifiedBlocks.push(`// --- Source: ${sf} ---`);
+            for (const line of text.split('\n')) {
+                const t = line.trim();
+                if (t.startsWith("#include ")) continue;
+                const fnMatch = t.match(/^(?:extern\s+"C"\s+)?(?:static\s+|inline\s+)?(?:[a-zA-Z0-9_*&:\s]+?)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^;{}]*\)\s*\{/);
+                if (fnMatch) {
+                    const sym = fnMatch[1];
+                    if (seenSymbols.has(sym)) {
+                        deduplicatedCount++;
+                        unifiedBlocks.push(`// [Deduplicated duplicate symbol: ${sym} from ${sf}]`);
+                        continue;
+                    }
+                    seenSymbols.add(sym);
+                }
+                unifiedBlocks.push(line);
+            }
+            unifiedBlocks.push(``);
+        }
+        unifiedBlocks.push(`#ifdef __cplusplus`, `}`, `#endif`, ``);
+
+        const fileEdits = [
+            { filePath: unifiedPath, action: "create", newText: unifiedBlocks.join('\n'), summary: `Create unified stub file ${unifiedPath}` }
+        ];
+
+        for (const sf of stubFiles) {
+            if (sf !== unifiedPath) {
+                fileEdits.push({ filePath: sf, action: "delete", newText: null, summary: `Remove consolidated stub file ${sf}` });
+            }
+        }
+
+        // Update CMakeLists.txt files to replace old stub files with dkr_unified_stubs.cpp
+        for (const buildPath of this.androidModel.cmakeFiles) {
+            const bText = getFileText(buildPath);
+            if (!bText) continue;
+            const buildDir = buildPath.includes('/') ? buildPath.slice(0, buildPath.lastIndexOf('/')) : '';
+            const relUnified = buildDir && unifiedPath.startsWith(`${buildDir}/`) ? unifiedPath.slice(buildDir.length + 1) : "dkr_unified_stubs.cpp";
+            let modified = false;
+            let addedUnified = false;
+            const nextLines = [];
+            for (const line of bText.split('\n')) {
+                const matchesStub = stubFiles.some(sf => {
+                    const relSf = buildDir && sf.startsWith(`${buildDir}/`) ? sf.slice(buildDir.length + 1) : sf.split('/').pop();
+                    return line.includes(relSf);
+                });
+                if (matchesStub) {
+                    modified = true;
+                    if (!addedUnified) {
+                        const indent = (line.match(/^\s*/) || [""])[0];
+                        nextLines.push(`${indent}${relUnified}`);
+                        addedUnified = true;
+                    }
+                } else {
+                    nextLines.push(line);
+                }
+            }
+            if (modified) {
+                fileEdits.push({ filePath: buildPath, action: "modify", newText: nextLines.join('\n'), summary: `Point ${buildPath} to ${relUnified}` });
+            }
+        }
+
+        const html = `<strong>Stub Unification Plan Staged:</strong><br>` +
+            `• Consolidated <strong>${stubFiles.length}</strong> stub files into <code>${unifiedPath}</code> (${seenSymbols.size} unique functions preserved, ${deduplicatedCount} duplicate definitions flagged).<br>` +
+            `• Updated <code>CMakeLists.txt</code> source targets and marked obsolete stub files for deletion:<br>` +
+            stubFiles.map(sf => `&nbsp;&nbsp;- <code>${sf}</code>`).join('<br>') + `<br>` +
+            `• Tap <strong>Export .patch</strong> to download the complete multi-file refactor.`;
+        return { html, fileEdits };
+    }
+
+    runStubParityReport() {
+        if (this.stubCatalog.length === 0) {
+            return {
+                html: `<strong>Native Stub & Decomp Parity Report:</strong><br>No stub functions detected yet. Mount your workspace first.`,
+                synthesizedDiff: null
+            };
+        }
+        const activeStubs = this.stubCatalog
+            .filter(s => s.isRuntimeReachable)
+            .sort((a, b) => b.callersCount - a.callersCount);
+        const deadStubs = this.stubCatalog.length - activeStubs.length;
+
+        let html = `<strong>Native Stub & Decomp Parity Report (${this.stubCatalog.length} total stubs: ${activeStubs.length} runtime-reachable, ${deadStubs} uncalled):</strong><br>`;
+        for (const s of activeStubs.slice(0, 8)) {
+            const decompTag = s.decompImpl ? ` &rarr; Decomp: <code>${s.decompImpl.filePath}:${s.decompImpl.line}</code>` : "";
+            const manTag = s.manualDoc ? ` [N64 Manual Spec]` : "";
+            html += `• <code>${s.name}</code> in <code>${s.filePath}:${s.line}</code> (<strong>${s.callersCount} callers</strong>) — <em>${s.stubReason}</em>${decompTag}${manTag}<br>`;
+        }
+        let synthesizedDiff = null;
+        if (activeStubs.length > 0) {
+            const top = activeStubs[0];
+            synthesizedDiff = {
+                filePath: top.filePath,
+                line: top.line,
+                endLine: top.endLine,
+                replaceSpan: true,
+                symbolName: `Stub Parity: ${top.name}`,
+                contextBefore: [`// [Stub Parity] ${top.stubReason} (${top.callersCount} active callers)`],
+                insertionLines: top.decompImpl
+                    ? [`// Reference implementation from ${top.decompImpl.filePath}:${top.decompImpl.line}:`, ...top.decompImpl.snippet.split('\n')]
+                    : [`// N64 Manual Spec: ${top.manualDoc || "Implement hardware shim"}`, ...top.originalLines],
+                contextAfter: []
+            };
+            html += `<br><strong>Staged Highest-Impact Stub:</strong> Loaded <code>${top.name}</code> (<code>${top.filePath}:${top.line}</code>) into Diff Review.`;
+        }
+        return { html, synthesizedDiff };
+    }
+
+    _crossVerifyEmulatorAgainstSpecs() {
+        const gfxFiles = Array.from(this.fileSummaries.keys()).filter(p => /gfx_interpreter\.(c|cpp|h)$/.test(p));
+        if (gfxFiles.length === 0) return;
+
+        // Collect all case labels / opcode references inside gfx_interpreter
+        const handledOpcodes = new Set();
+        for (const box of this.boxes.values()) {
+            if (box.payload && /gfx_interpreter\.(c|cpp|h)$/.test(box.payload.filePath) && box.payload.snippet) {
+                const caseRe = /\bcase\s+(0x[0-9a-fA-F]+|[A-Za-z_][A-Za-z0-9_]*)\s*:/g;
+                let cm;
+                while ((cm = caseRe.exec(box.payload.snippet)) !== null) {
+                    handledOpcodes.add(cm[1]);
+                    if (cm[1].startsWith("0x")) handledOpcodes.add(String(Number(cm[1])));
+                }
+            }
+        }
+
+        // Cross-link F3DDKR / GBI macros to gfx_interpreter boxes and flag mismatched constants
+        const fbW = this.macroTable.get("FB_WIDTH");
+        const fbH = this.macroTable.get("FB_HEIGHT");
+        const scrW = this.macroTable.get("SCREEN_WIDTH");
+        const scrH = this.macroTable.get("SCREEN_HEIGHT");
+        if (fbW && scrW && fbW.numericVal && scrW.numericVal && fbW.numericVal !== scrW.numericVal) {
+            this.auditFindings.push({
+                severity: "HIGH",
+                category: "Emulator vs Game Framebuffer Resolution Mismatch",
+                filePath: fbW.filePath,
+                line: fbW.line,
+                code: `#define FB_WIDTH ${fbW.value} (vs SCREEN_WIDTH ${scrW.value} in ${scrW.filePath}:${scrW.line})`,
+                reason: `Software rasterizer framebuffer (${fbW.numericVal}x${fbH ? fbH.numericVal : "?"}) differs from game SCREEN_WIDTH (${scrW.numericVal}x${scrH ? scrH.numericVal : "?"}), causing viewport/scissor clipping or aspect scaling artifacts.`,
+                replaceLine: true,
+                fixSuggestion: `#define FB_WIDTH  ${scrW.numericVal}`
+            });
+        }
+
+        for (const [mName, info] of this.macroTable.entries()) {
+            if (!mName.startsWith("G_") || info.numericVal === null) continue;
+            if (!/(?:f3ddkr|gbi|mbi)\.h$/i.test(info.filePath)) continue;
+            const gfxBox = this.boxes.get(`file:${gfxFiles[0]}`);
+            if (gfxBox) {
+                this.addTether(`macro:${info.filePath}:${info.line}:${mName}`, gfxBox.id, 0.85, "specifies_opcode");
+            }
+        }
+    }
+
     verifyFindingEndToEnd(finding) {
         if (!finding) return null;
         const verifiedNotes = [];
@@ -1579,21 +2024,34 @@ class NeuroSymbolicEngine {
             }
         }
 
-        // 5. Mark C/C++ files compiled into native .so targets & link Prefab AAR packages
+        // 5. Mark C/C++ files compiled into native .so targets (both explicitSources & CMake GLOBs) & link Prefab AAR packages
         for (const target of this.androidModel.nativeTargets) {
             const libBoxId = `nativelib:${target.buildFile}:${target.targetName}`;
+            const cmakeDir = target.buildFile.includes("/") ? target.buildFile.slice(0, target.buildFile.lastIndexOf("/")) : "";
             for (const pkg of target.prefabPackages) {
                 this.addTether(libBoxId, `android_doc:${pkg.replace(/-/g, "")}`, 0.85, "links_prefab");
             }
+            const markPackagedSource = (matchedPath) => {
+                const sum = this.fileSummaries.get(matchedPath);
+                if (sum) sum.packaging = `PACKAGED_IN_${target.soFileName}`;
+                const fBox = this.boxes.get(`file:${matchedPath}`);
+                if (fBox) fBox.payload.packaging = `PACKAGED_IN_${target.soFileName}`;
+                this.addTether(`file:${matchedPath}`, libBoxId, 0.9, "compiles_into_so");
+            };
             for (const srcRel of target.explicitSources) {
                 const cleanSrc = srcRel.replace(/^\$\{CMAKE_CURRENT_SOURCE_DIR\}\//, "").replace(/^\.\//, "");
                 const matchedPath = allPaths.find(p => p.endsWith(`/${cleanSrc}`) || p === cleanSrc);
-                if (matchedPath) {
-                    const sum = this.fileSummaries.get(matchedPath);
-                    if (sum) sum.packaging = `PACKAGED_IN_${target.soFileName}`;
-                    const fBox = this.boxes.get(`file:${matchedPath}`);
-                    if (fBox) fBox.payload.packaging = `PACKAGED_IN_${target.soFileName}`;
-                    this.addTether(`file:${matchedPath}`, libBoxId, 0.9, "compiles_into_so");
+                if (matchedPath) markPackagedSource(matchedPath);
+            }
+            for (const globPat of target.sourceGlobs) {
+                const cleanGlob = globPat.replace(/^\$\{CMAKE_CURRENT_SOURCE_DIR\}\//, "").replace(/^\.\//, "");
+                const extMatch = cleanGlob.match(/\*\.([a-zA-Z0-9]+)$/);
+                const subDir = cleanGlob.split("*")[0].replace(/\/$/, "");
+                const prefix = cmakeDir ? (subDir ? `${cmakeDir}/${subDir}` : cmakeDir) : subDir;
+                for (const p of allPaths) {
+                    if (prefix && !p.startsWith(prefix)) continue;
+                    if (extMatch && !p.toLowerCase().endsWith(`.${extMatch[1].toLowerCase()}`)) continue;
+                    if (/\.(c|cpp|cc|cxx|s|asm)$/i.test(p)) markPackagedSource(p);
                 }
             }
         }
@@ -1713,6 +2171,10 @@ class NeuroSymbolicEngine {
                 }
             }
         }
+
+        // 9b. Spec-vs-Emulator Cross-Verification & Stub-vs-Decomp Parity Resolution
+        this._crossVerifyEmulatorAgainstSpecs();
+        this._analyzeStubsAgainstDecompAndManual();
 
         // 10. End-to-End Self-Verification Pass on all Audit Findings & Synthesized Fixes
         this.auditFindings = this.auditFindings.map(f => this.verifyFindingEndToEnd(f)).filter(Boolean);
@@ -1983,6 +2445,10 @@ class NeuroSymbolicEngine {
             return this.runFullPortAudit();
         }
 
+        if (q.includes("stub")) {
+            return this.runStubParityReport();
+        }
+
         const isOverviewQuery = q.includes("port state") || q.includes("status") || q.includes("overview") || q.includes("architecture") || q.includes("summarize");
         if (isOverviewQuery) {
             return this.analyzeAndroidPackagingAndOperation();
@@ -2004,8 +2470,8 @@ class NeuroSymbolicEngine {
 
         const { rawTokens, expandedTokens, activatedBoxes, activeTethers } = this.retrieveAndActivate(queryText);
 
-        const isCrashQuery = q.includes("segv") || q.includes("crash") || q.includes("fault") || q.includes("error") || q.includes("debug");
-        const isPatchQuery = q.includes("fix") || q.includes("patch") || q.includes("implement") || q.includes("wrap");
+        const isCrashQuery = q.includes("segv") || q.includes("crash") || q.includes("fault") || q.includes("error") || q.includes("debug") || q.includes("render") || q.includes("display") || q.includes("inaccura") || q.includes("gfx") || q.includes("tlut") || q.includes("texture") || q.includes("matrix");
+        const isPatchQuery = q.includes("fix") || q.includes("patch") || q.includes("implement") || q.includes("wrap") || q.includes("diagnos");
 
         let html = "";
         let synthesizedDiff = null;

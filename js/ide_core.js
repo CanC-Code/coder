@@ -285,6 +285,52 @@ function sendGoal() {
     input.value = '';
 
     setTimeout(() => {
+        const qLower = text.toLowerCase().trim();
+        const getFileText = (p) => patchedContents[p] !== undefined ? patchedContents[p] : (cachedFileTexts[p] || "");
+        const applyFileEdits = (edits) => {
+            for (const ed of edits) {
+                if (ed.action === "delete") {
+                    patchedContents[ed.filePath] = "__BKA_DELETED_FILE__";
+                } else if (ed.action === "create" || ed.action === "modify") {
+                    patchedContents[ed.filePath] = ed.newText;
+                    if (ed.action === "create") {
+                        workspaceFiles[ed.filePath] = { name: ed.filePath.split('/').pop(), text: async () => ed.newText };
+                    }
+                }
+            }
+            const allTreePaths = Array.from(new Set([
+                ...Array.from(engine.fileSummaries.keys()),
+                ...Object.keys(workspaceFiles)
+            ])).filter(p => patchedContents[p] !== "__BKA_DELETED_FILE__").sort();
+            if (allTreePaths.length > 0) buildAndRenderTreeFromPaths(allTreePaths);
+            if (window.triggerCoderSnapshot) window.triggerCoderSnapshot();
+        };
+
+        const moveMatch = text.match(/^(?:move|rename)\s+(?:file\s+)?(\S+)\s+(?:to|->)\s+(\S+)$/i);
+        const delMatch = text.match(/^(?:delete|remove)\s+(?:file\s+)?(\S+)$/i);
+
+        if (moveMatch) {
+            const { html, fileEdits } = engine.planFileMove(moveMatch[1], moveMatch[2], getFileText);
+            applyFileEdits(fileEdits);
+            appendAgentMessage(html);
+            updateStatusBar();
+            return;
+        }
+        if (delMatch) {
+            const { html, fileEdits } = engine.planFileDelete(delMatch[1], getFileText);
+            applyFileEdits(fileEdits);
+            appendAgentMessage(html);
+            updateStatusBar();
+            return;
+        }
+        if (qLower.includes("unify stub") || qLower.includes("consolidate stub") || qLower.includes("merge stub")) {
+            const { html, fileEdits } = engine.planStubUnification(getFileText);
+            applyFileEdits(fileEdits);
+            appendAgentMessage(html);
+            updateStatusBar();
+            return;
+        }
+
         const { html, synthesizedDiff } = engine.analyzeAndRespond(text);
         appendAgentMessage(html);
         if (synthesizedDiff) {
@@ -312,28 +358,81 @@ async function approveAndSave() {
         }
     }
 
+    if (!originalText && cachedFileTexts[path]) {
+        originalText = cachedFileTexts[path];
+    }
     const lines = (originalText || "").split('\n');
     const insertIdx = Math.max(0, Math.min(lines.length, pendingDiff.line - 1));
-    lines.splice(insertIdx, 0, ...pendingDiff.insertionLines);
+    const codeLines = pendingDiff.insertionLines.filter(l => !l.trim().startsWith("// [Co-requisite"));
+    if (pendingDiff.replaceSpan && pendingDiff.endLine >= pendingDiff.line && insertIdx < lines.length) {
+        const spanCount = Math.min(lines.length - insertIdx, (pendingDiff.endLine - pendingDiff.line) + 1);
+        lines.splice(insertIdx, spanCount, ...codeLines);
+    } else if (pendingDiff.replaceLine && insertIdx < lines.length) {
+        const origIndent = (lines[insertIdx].match(/^\s*/) || [""])[0];
+        const formatted = codeLines.map((l, idx) => idx === 0 && !l.startsWith(origIndent) ? origIndent + l.trimStart() : l);
+        lines.splice(insertIdx, 1, ...formatted);
+    } else {
+        lines.splice(insertIdx, 0, ...codeLines);
+    }
     const updatedText = lines.join('\n');
 
     patchedContents[path] = updatedText;
     engine.reinforceActiveTethers();
     updateStatusBar();
+    if (window.triggerCoderSnapshot) window.triggerCoderSnapshot();
 
-    document.getElementById('diff-file-title').textContent = `${path} (${updatedText.length} bytes) [COMMITTED]`;
+    document.getElementById('diff-file-title').textContent = `${path} (${updatedText.length} bytes) [COMMITTED - ${Object.keys(patchedContents).length} file(s) staged]`;
     document.getElementById('diff-view').textContent = updatedText;
 
-    const blob = new Blob([updatedText], { type: 'text/plain' });
+    appendAgentMessage(`<strong>Patch Staged in Memory (${Object.keys(patchedContents).length} file(s) modified):</strong> ${pendingDiff.replaceLine ? "Replaced" : "Inserted"} line ${pendingDiff.line} in <code>${path}</code> and reinforced conceptual tethers. Tap <strong>Export .patch</strong> when ready to apply via <code>git apply</code>.`);
+    pendingDiff = null;
+}
+
+function exportUnifiedPatch() {
+    const paths = Object.keys(patchedContents);
+    if (paths.length === 0) {
+        appendAgentMessage("No approved patches staged yet. Review findings and tap <strong>Approve & Commit NDK/JNI Fix</strong> first.");
+        return;
+    }
+    const hunks = [];
+    for (const p of paths) {
+        const origExists = cachedFileTexts[p] !== undefined;
+        const origLines = (cachedFileTexts[p] || "").split('\n');
+        const isDeleted = patchedContents[p] === "__BKA_DELETED_FILE__";
+        if (isDeleted) {
+            hunks.push(`diff --git a/${p} b/${p}`);
+            hunks.push(`deleted file mode 100644`);
+            hunks.push(`--- a/${p}`);
+            hunks.push(`+++ /dev/null`);
+            hunks.push(`@@ -1,${origLines.length} +0,0 @@`);
+            for (const l of origLines) hunks.push(`-${l}`);
+        } else if (!origExists) {
+            const newLines = patchedContents[p].split('\n');
+            hunks.push(`diff --git a/${p} b/${p}`);
+            hunks.push(`new file mode 100644`);
+            hunks.push(`--- /dev/null`);
+            hunks.push(`+++ b/${p}`);
+            hunks.push(`@@ -0,0 +1,${newLines.length} @@`);
+            for (const l of newLines) hunks.push(`+${l}`);
+        } else {
+            const newLines = patchedContents[p].split('\n');
+            hunks.push(`diff --git a/${p} b/${p}`);
+            hunks.push(`--- a/${p}`);
+            hunks.push(`+++ b/${p}`);
+            hunks.push(`@@ -1,${origLines.length} +1,${newLines.length} @@`);
+            for (const l of origLines) hunks.push(`-${l}`);
+            for (const l of newLines) hunks.push(`+${l}`);
+        }
+    }
+    const patchText = hunks.join('\n') + '\n';
+    const blob = new Blob([patchText], { type: 'text/x-diff' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = path.split('/').pop();
+    a.download = `coder-port-fixes-${Date.now()}.patch`;
     a.click();
     URL.revokeObjectURL(url);
-
-    appendAgentMessage(`<strong>Patch Committed & Reinforced:</strong> Applied insertion to <code>${path}</code>, strengthened active conceptual tethers, and exported patched file.`);
-    pendingDiff = null;
+    appendAgentMessage(`<strong>Exported Unified Git Patch:</strong> Downloaded <code>coder-port-fixes.patch</code> covering <strong>${paths.length}</strong> modified file(s). Apply with <code>git apply</code>.`);
 }
 
 function exportSession() {
@@ -428,6 +527,10 @@ function stageFindingAtIndex(idx) {
     const diff = {
         filePath: f.filePath,
         line: f.line,
+        replaceLine: Boolean(f.replaceLine),
+        replaceSpan: Boolean(f.replaceSpan),
+        endLine: f.endLine || f.line,
+        originalLine: f.code || "",
         symbolName: `[Finding ${activeFindingIndex + 1}/${engine.auditFindings.length}] ${f.category}${vBadge}`,
         contextBefore: [`// [${f.severity}] ${f.category}${vBadge}`, `// Original: ${f.code}`, ...vNotes],
         insertionLines: f.fixSuggestion.split('\n'),
