@@ -1,0 +1,21 @@
+================================================================================
+ NEURO-SYMBOLIC CODER EXPORT & REVIEW BUNDLE
+ Generated Timestamp: 20261118_121823
+================================================================================
+
+--- 1. WORKSPACE GIT STATUS ---
+?? core/compiler/auto_exporter.py
+?? core/compiler/dynamic_generator.py
+?? core/generated_stubs/
+
+
+--- 2. DETAILED GIT DIFFS ---
+
+
+--- 3. AUTO-GENERATED STUBS PREVIEW ---
+/* Auto-generated Neuro-Symbolic Stubs for Universal Porting */
+#include <stdint.h>
+#include <string.h>
+
+
+
