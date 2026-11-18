@@ -2013,7 +2013,8 @@ ${stub.decompImpl.snippet}`
             };
             html += `<br><strong>Staged Highest-Impact Stub:</strong> Loaded <code>${top.name}</code> (<code>${top.filePath}:${top.line}</code>) into Diff Review.`;
         }
-        return { html, synthesizedDiff };
+        const finalHtml = parity.totalMipsSymbols > 0 ? (mipsDashboardHtml + html) : html;
+        return { html: finalHtml, synthesizedDiff };
     }
 
     _crossVerifyEmulatorAgainstSpecs() {
@@ -2137,6 +2138,7 @@ ${stub.decompImpl.snippet}`
     finalizeCrossReferences() {
         const xrefTitles = new Set([
             "Unmatched System.loadLibrary",
+            "Unmatched System.loadLibrary Target",
             "Unresolved JNI Native Binding",
             "R8 Full-Mode Reverse-JNI Strip Risk",
             "Emulator vs Game Framebuffer Resolution Mismatch"
@@ -2582,7 +2584,8 @@ ${stub.decompImpl.snippet}`
     }
 
     runFullPortAudit() {
-        const parity = this.analyzeMipsAssemblyParity(this.cachedFileTexts || {});
+        const textsSource = this.cachedFileTexts || (typeof cachedFileTexts !== "undefined" ? cachedFileTexts : {});
+        const parity = this.analyzeMipsAssemblyParity(textsSource);
         const coveragePct = parity.totalMipsSymbols > 0 
             ? ((1 - (parity.missingParity.length / parity.totalMipsSymbols)) * 100).toFixed(1) 
             : 100.0;
