@@ -421,11 +421,15 @@ function stageFindingAtIndex(idx) {
     if (!engine.auditFindings || engine.auditFindings.length === 0) return;
     activeFindingIndex = ((idx % engine.auditFindings.length) + engine.auditFindings.length) % engine.auditFindings.length;
     const f = engine.auditFindings[activeFindingIndex];
+    const vBadge = f.verificationStatus ? ` [${f.verificationStatus}]` : "";
+    const vNotes = (f.verificationNotes && f.verificationNotes.length > 0)
+        ? f.verificationNotes.map(n => `// Verify: ${n}`)
+        : [];
     const diff = {
         filePath: f.filePath,
         line: f.line,
-        symbolName: `[Finding ${activeFindingIndex + 1}/${engine.auditFindings.length}] ${f.category}`,
-        contextBefore: [`// [${f.severity}] ${f.category}`, `// Original: ${f.code}`],
+        symbolName: `[Finding ${activeFindingIndex + 1}/${engine.auditFindings.length}] ${f.category}${vBadge}`,
+        contextBefore: [`// [${f.severity}] ${f.category}${vBadge}`, `// Original: ${f.code}`, ...vNotes],
         insertionLines: f.fixSuggestion.split('\n'),
         contextAfter: [`// Reason: ${f.reason}`]
     };

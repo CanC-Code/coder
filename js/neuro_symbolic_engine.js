@@ -191,7 +191,9 @@ class NeuroSymbolicEngine {
         this.tau = tau;
         this.boxes = new Map();       // id -> ConceptualBox
         this.tethers = [];            // Tether[]
+        this.outgoingTethers = new Map(); // sourceId -> Tether[]
         this.tetherIndex = new Set(); // "src->tgt:rel"
+        this.symbolTypes = new Map(); // "StructName.field" or "varName" -> declared C type
         this.lexicon = new BidirectionalLexicon();
 
         this.invertedIndex = new Map();
@@ -277,7 +279,9 @@ class NeuroSymbolicEngine {
 
         this.boxes.clear();
         this.tethers = [];
+        this.outgoingTethers.clear();
         this.tetherIndex.clear();
+        this.symbolTypes.clear();
         this.invertedIndex.clear();
         this.docLengths.clear();
         this.symbolToBoxIds.clear();
@@ -410,7 +414,12 @@ class NeuroSymbolicEngine {
         const key = `${sourceId}->${targetId}:${relation}`;
         if (this.tetherIndex.has(key)) return;
         this.tetherIndex.add(key);
-        this.tethers.push(new Tether(sourceId, targetId, weight, relation));
+        const t = new Tether(sourceId, targetId, weight, relation);
+        this.tethers.push(t);
+        if (!this.outgoingTethers.has(sourceId)) {
+            this.outgoingTethers.set(sourceId, []);
+        }
+        this.outgoingTethers.get(sourceId).push(t);
     }
 
     _ensureCallNode(symName) {
@@ -1187,10 +1196,34 @@ class NeuroSymbolicEngine {
         // Build per-file symbol table of actual pointer-typed variables (*) so integer ROM/file offsets
         // (e.g., assetOffset, romOffset, bufferSize) are NEVER misflagged as 64-bit pointers.
         const pointerIdentifiers = new Set();
-        const ptrDeclRegex = /\b(?:void|char|u8|s8|u16|s16|u32|s32|u64|s64|uint8_t|int8_t|uint16_t|int16_t|uint32_t|int32_t|uint64_t|int64_t|uintptr_t|size_t|float|double|Gfx|Vtx|Mtx|OSTask|OSMesg|OSThread|OSPiHandle|ALHeap|struct\s+[a-zA-Z_][a-zA-Z0-9_]*|[A-Z][a-zA-Z0-9_]+)\s*\*+\s*(?:const\s+|restrict\s+)?([a-zA-Z_][a-zA-Z0-9_]*)/g;
+        const scalarIntIdentifiers = new Set();
+        const typeDeclRegex = /\b(void|char|u8|s8|u16|s16|u32|s32|u64|s64|uint8_t|int8_t|uint16_t|int16_t|uint32_t|int32_t|uint64_t|int64_t|uintptr_t|size_t|float|double|Gfx|Vtx|Mtx|OSTask|OSMesg|OSThread|OSPiHandle|ALHeap|struct\s+[a-zA-Z_][a-zA-Z0-9_]*|[A-Z][a-zA-Z0-9_]+)(\s*\*+\s*|\s+)(?:const\s+|restrict\s+)?([a-zA-Z_][a-zA-Z0-9_]*)/g;
         let pdm;
-        while ((pdm = ptrDeclRegex.exec(fullText)) !== null) {
-            pointerIdentifiers.add(pdm[1]);
+        while ((pdm = typeDeclRegex.exec(fullText)) !== null) {
+            const baseType = pdm[1].trim();
+            const isPtr = pdm[2].includes("*");
+            const ident = pdm[3];
+            if (["if", "for", "while", "switch", "return", "sizeof", "else"].includes(ident)) continue;
+            if (isPtr) {
+                pointerIdentifiers.add(ident);
+                this.symbolTypes.set(ident, `${baseType}*`);
+            } else if (/^(?:u8|s8|u16|s16|u32|s32|uint8_t|int8_t|uint16_t|int16_t|uint32_t|int32_t|int|unsigned)$/.test(baseType)) {
+                scalarIntIdentifiers.add(ident);
+                if (!this.symbolTypes.has(ident)) this.symbolTypes.set(ident, baseType);
+            }
+        }
+        // Index struct fields: typedef struct { u32 startAddr; ... } AMDMABuffer;
+        const structBlockRe = /typedef\s+struct(?:\s+[a-zA-Z0-9_]+)?\s*\{([^{}]+)\}\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*;/g;
+        let sbm;
+        while ((sbm = structBlockRe.exec(fullText)) !== null) {
+            const body = sbm[1];
+            const structName = sbm[2];
+            const fieldRe = /\b([a-zA-Z_][a-zA-Z0-9_\s*]+?)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\[[^\]]*\])?\s*;/g;
+            let fm;
+            while ((fm = fieldRe.exec(body)) !== null) {
+                this.symbolTypes.set(`${structName}.${fm[2]}`, fm[1].trim());
+                this.symbolTypes.set(`*.${fm[2]}`, { type: fm[1].trim(), structName, filePath: path });
+            }
         }
         const intOffsetBlocklist = /(?:offset|size|len|length|count|samples|index|idx|num|id|flags|mask|stride|width|height|pitch|format|type|state|mode|status|timer|frame|tick|seed|crc|hash|volume|pan|freq|rate|channel|voice|seq|bank|track|rom|vrom|segment|page|sector|block|tag|key|val|value|param|arg|res|ret|err|code|cmd|op|table|tbl|lut|array|list|map)$/i;
         const ptrCastRegex = /\(\s*(?:u32|s32|uint32_t|int32_t|unsigned\s+int|int)\s*\)\s*(&?[a-zA-Z_][a-zA-Z0-9_]*(?:(?:->|\.)[a-zA-Z_][a-zA-Z0-9_]*)?)/g;
@@ -1221,7 +1254,8 @@ class NeuroSymbolicEngine {
                 // If accessing a struct field (e.g. bf->bankCount), inspect the leaf field name, NOT the struct pointer!
                 const isExplicitPtr = parts.length === 1 && pointerIdentifiers.has(leafIdent);
                 const hasPtrNaming = /(?:^|_)(?:ptr|addr|address|buf|buffer|mem|heap|stack|dst|src|handle|win|window|surface|ctx|context)(?:_|$)/i.test(leafIdent);
-                if ((isAddressOf || isExplicitPtr || hasPtrNaming) && !intOffsetBlocklist.test(leafIdent)) {
+                const isKnownScalar = parts.length === 1 && scalarIntIdentifiers.has(leafIdent) && !isExplicitPtr && !isAddressOf;
+                if (!isKnownScalar && (isAddressOf || isExplicitPtr || hasPtrNaming) && !intOffsetBlocklist.test(leafIdent)) {
                     confirmedPtrExprs.push(expr);
                 }
             }
@@ -1425,6 +1459,51 @@ class NeuroSymbolicEngine {
             }
         }
         return { learnedTerms };
+    }
+
+    verifyFindingEndToEnd(finding) {
+        if (!finding) return null;
+        const verifiedNotes = [];
+        let verificationStatus = "VERIFIED_SAFE";
+
+        // 1. Check binary comparison / assignment type symmetry (e.g. dmaPtr->startAddr > (uintptr_t)addr)
+        if (finding.category.includes("Pointer Truncation")) {
+            const fieldCmp = finding.code.match(/([a-zA-Z_][a-zA-Z0-9_]*)(?:->|\.)([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:[<>!=]=?|\+|-|=)\s*\(\s*(?:u32|s32|uint32_t|int32_t|int)\s*\)\s*([a-zA-Z_][a-zA-Z0-9_]*)/);
+            if (fieldCmp) {
+                const rhsIdent = fieldCmp[3];
+                const lhsField = fieldCmp[2];
+                const rhsType = this.symbolTypes.get(rhsIdent);
+                const lhsMeta = this.symbolTypes.get(`*.${lhsField}`);
+
+                // If RHS is confirmed scalar u32/s32 ROM offset (not a pointer), drop false positive!
+                if (rhsType && !rhsType.includes("*") && !rhsType.includes("void") && !rhsType.includes("uintptr")) {
+                    return null;
+                }
+                if (lhsMeta && typeof lhsMeta === "object" && /^(?:u32|s32|uint32_t|int32_t)$/.test(lhsMeta.type)) {
+                    verificationStatus = "COUPLED_STRUCT_FIELD_REQUIRED";
+                    verifiedNotes.push(`Coupled field '${lhsMeta.structName}.${lhsField}' in ${lhsMeta.filePath} is currently '${lhsMeta.type}' and must also widen to 'uintptr_t'.`);
+                    finding.fixSuggestion = `${finding.fixSuggestion}\n// [Co-requisite in ${lhsMeta.filePath}] Widen ${lhsMeta.structName}.${lhsField} from ${lhsMeta.type} -> uintptr_t`;
+                }
+            }
+            // Verify <stdint.h> availability for uintptr_t
+            const sum = this.fileSummaries.get(finding.filePath);
+            if (sum && !sum.includes.some(inc => inc.includes("stdint.h") || inc.includes("ultra64.h") || inc.includes("types.h"))) {
+                verifiedNotes.push("Requires #include <stdint.h> for uintptr_t.");
+            }
+        }
+
+        // 2. Check balanced delimiters in synthesized fixSuggestion
+        const codeOnly = finding.fixSuggestion.split("\n").filter(l => !l.trim().startsWith("//")).join("\n");
+        const openParens = (codeOnly.match(/\(/g) || []).length;
+        const closeParens = (codeOnly.match(/\)/g) || []).length;
+        if (openParens !== closeParens) {
+            verificationStatus = "SYNTAX_REVIEW_NEEDED";
+            verifiedNotes.push(`Unbalanced parentheses in synthesized line (${openParens} '(' vs ${closeParens} ')').`);
+        }
+
+        finding.verificationStatus = verificationStatus;
+        finding.verificationNotes = verifiedNotes;
+        return finding;
     }
 
     finalizeCrossReferences() {
@@ -1635,6 +1714,9 @@ class NeuroSymbolicEngine {
             }
         }
 
+        // 10. End-to-End Self-Verification Pass on all Audit Findings & Synthesized Fixes
+        this.auditFindings = this.auditFindings.map(f => this.verifyFindingEndToEnd(f)).filter(Boolean);
+
         const rank = { CRITICAL: 0, HIGH: 1, MEDIUM: 2 };
         this.auditFindings.sort((a, b) => (rank[a.severity] ?? 3) - (rank[b.severity] ?? 3));
         if (typeof window !== "undefined" && window.triggerCoderSnapshot) window.triggerCoderSnapshot();
@@ -1689,8 +1771,9 @@ class NeuroSymbolicEngine {
             visited.add(currId);
             const currAct = activation.get(currId) || 0;
 
-            for (const tether of this.tethers) {
-                if (tether.sourceId === currId && tether.weight >= this.tau) {
+            const edges = this.outgoingTethers.get(currId) || [];
+            for (const tether of edges) {
+                if (tether.weight >= this.tau) {
                     const signal = currAct * tether.weight;
                     if (signal >= this.tau) {
                         activeTethers.push(tether);
