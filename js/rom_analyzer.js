@@ -6,6 +6,7 @@
     "617025797": "CIC-NUS-6101 (Star Fox 64 NTSC)",
     "90f053bd":  "CIC-NUS-6102 / 7101 (Standard NTSC/PAL - Mario 64, DKR, etc.)",
     "48500368":  "CIC-NUS-6103 / 7103 (Banjo-Kazooie, Paper Mario)",
+    "0b050ee0":  "CIC-NUS-6103 (Diddy Kong Racing / Rareware IPL3)",
     "9e919200":  "CIC-NUS-6105 / 7105 (Zelda OoT / MM - 0x80000400+ challenges)",
     "587bd543":  "CIC-NUS-6106 / 7106 (F-Zero X, Yoshi's Story)"
   };

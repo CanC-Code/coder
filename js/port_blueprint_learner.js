@@ -284,7 +284,7 @@
     const cppCorpus = Object.entries(texts)
       .filter(([p, v]) => typeof v === "string" && /\.(?:c|cc|cpp|cxx|h|hpp)$/i.test(p))
       .map(([, v]) => v)
-      .join("\n");
+      .join("\n").replace(/\s+/g, " ");
     const missingJni = nativeDecls.filter(d => !cppCorpus.includes(d.expectedJniSymbol));
 
     const cmakePath = paths.find(p => /(?:^|\/)android\/app\/src\/main\/cpp\/CMakeLists\.txt$/i.test(p));
