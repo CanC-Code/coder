@@ -270,10 +270,10 @@ class NeuroSymbolicEngine {
         }
     }
 
-    resetWorkspace() {
-        // Preserve ingested reference manuals across workspace mounts!
-        const preservedManualBoxes = Array.from(this.boxes.values()).filter(b => b.domain === "n64_manual" || b.type === "manual_section");
-        const preservedManualTethers = this.tethers.filter(t => t.sourceId.startsWith("manual:") || t.targetId.startsWith("manual:"));
+    resetWorkspace(clearAll = false) {
+        // Preserve ingested reference manuals across workspace mounts (unless doing a full importState reset)
+        const preservedManualBoxes = clearAll ? [] : Array.from(this.boxes.values()).filter(b => b.domain === "n64_manual" || b.type === "manual_section" || b.type === "manual_file");
+        const preservedManualTethers = clearAll ? [] : this.tethers.filter(t => t.sourceId.startsWith("manual:") || t.targetId.startsWith("manual:"));
 
         this.boxes.clear();
         this.tethers = [];
@@ -438,7 +438,7 @@ class NeuroSymbolicEngine {
 
         this.addBox(new ConceptualBox(
             fileBoxId,
-            isManual ? "manual_section" : (execRole === "BUILD_CONFIG" ? "build_config" : "file"),
+            isManual ? "manual_file" : (execRole === "BUILD_CONFIG" ? "build_config" : "file"),
             domain,
             execRole,
             {
@@ -1658,7 +1658,7 @@ class NeuroSymbolicEngine {
 
             for (const [boxId, tf] of postings.entries()) {
                 const box = this.boxes.get(boxId);
-                const roleMultiplier = box && box.execRole === "OFFLINE_BUILD_TOOL" ? 0.15 : 1.0;
+                const roleMultiplier = !box ? 1.0 : (box.execRole === "OFFLINE_BUILD_TOOL" ? 0.15 : (box.type === "manual_file" ? 0.2 : 1.0));
                 const docLen = this.docLengths.get(boxId) || 1;
                 const bm25 = idf * ((tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (docLen / this.avgDocLength))));
                 scores.set(boxId, (scores.get(boxId) || 0) + bm25 * boost * roleMultiplier);
@@ -2021,7 +2021,7 @@ class NeuroSymbolicEngine {
         this.tau = data.tau || this.tau;
         if (data.lexicon) this.lexicon.fromJSON(data.lexicon);
         if (Array.isArray(data.boxes)) {
-            this.resetWorkspace();
+            this.resetWorkspace(true);
             for (const b of data.boxes) {
                 this.addBox(new ConceptualBox(b.id, b.type, b.domain, b.execRole || "HOT_PATH_RUNTIME", b.payload));
             }

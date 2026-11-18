@@ -87,11 +87,12 @@ async function ingestFilesInBatches(fileArray, isManual = false) {
                     if (isManual) appendAgentMessage(`<span style="color:#ff7b72;">[!] Manual file <code>${item.path}</code> was empty or unreadable (0 bytes).</span>`);
                     return;
                 }
+                const storageKey = isManual ? `manuals/${item.path}` : item.path;
                 if (text.length < 350000) {
-                    cachedFileTexts[item.path] = text;
+                    cachedFileTexts[storageKey] = text;
                 }
                 if (isManual) {
-                    workspaceFiles[`manuals/${item.path}`] = item.file;
+                    workspaceFiles[storageKey] = item.file;
                 }
                 await engine.ingestDocument(item.path, text, isManual, (pct) => {
                     showProgress(`Ingesting ${item.path}: ${pct}%...`);
@@ -195,8 +196,12 @@ async function loadFileIntoEditor(path, fileObj) {
         const text = patchedContents[path] !== undefined ? patchedContents[path] : (cachedFileTexts[path] !== undefined ? cachedFileTexts[path] : await fileObj.text());
         const sum = engine.fileSummaries.get(path);
         const pkgTag = sum ? ` [${sum.packaging}]` : "";
+        const maxPreview = 250000;
+        const displayText = text.length > maxPreview
+            ? text.slice(0, maxPreview) + `\n\n// ... [Truncated preview at ${maxPreview} bytes of ${text.length} total bytes] ...`
+            : text;
         document.getElementById('diff-file-title').textContent = `${path}${pkgTag} (${text.length} bytes)${patchedContents[path] ? " [PATCHED]" : ""}`;
-        document.getElementById('diff-view').textContent = text;
+        document.getElementById('diff-view').textContent = displayText;
     } catch (err) {
         document.getElementById('diff-view').textContent = `[!] Error reading file: ${err.message}`;
     }
@@ -472,12 +477,20 @@ function stepFinding(delta) {
         if (typeof engine === "undefined" || !window.coderPersistence) return;
         try {
             const restored = await window.coderPersistence.restoreFullSession(engine);
-            if (restored && engine.fileSummaries && engine.fileSummaries.size > 0) {
+            const manualPaths = Array.from(new Set(
+                Array.from(engine.boxes.values())
+                    .filter(b => b.type === "manual_section" && b.payload && b.payload.filePath)
+                    .map(b => `manuals/${b.payload.filePath}`)
+            ));
+            if (restored && ((engine.fileSummaries && engine.fileSummaries.size > 0) || manualPaths.length > 0)) {
                 cachedFileTexts = restored.cachedFileTexts || {};
                 patchedContents = restored.patchedContents || {};
                 activeFindingIndex = restored.activeFindingIndex || 0;
 
-                const paths = Array.from(engine.fileSummaries.keys()).sort();
+                const paths = Array.from(new Set([
+                    ...Array.from(engine.fileSummaries.keys()),
+                    ...manualPaths
+                ])).sort();
                 for (const p of paths) {
                     if (!workspaceFiles[p]) {
                         workspaceFiles[p] = {
