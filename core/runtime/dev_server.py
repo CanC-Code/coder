@@ -64,10 +64,19 @@ class CoderBridgeHandler(SimpleHTTPRequestHandler):
         self._send_json(200, {"ok": True})
 
     def do_GET(self):
+        if self.path == "/api/blueprint":
+            bp_path = os.path.join(CODER_ROOT, "core", "graph", "android_port_blueprint.json")
+            if os.path.isfile(bp_path):
+                with open(bp_path, "r", encoding="utf-8") as f:
+                    self._send_json(200, {"ok": True, "blueprint": json.load(f)})
+            else:
+                self._send_json(200, {"ok": True, "blueprint": None})
+            return
+
         if self.path == "/api/health":
             self._send_json(200, {
                 "ok": True,
-                "version": "v26",
+                "version": "v28",
                 "coder_root": CODER_ROOT,
                 "default_repo": detect_default_repo(),
                 "has_rish": bool(shutil.which("rish")),
@@ -95,6 +104,18 @@ class CoderBridgeHandler(SimpleHTTPRequestHandler):
                 self._send_json(200, {"ok": True, "ast": ast_data})
             except Exception as e:
                 self._send_json(500, {"ok": False, "error": str(e)})
+            return
+
+        if self.path == "/api/blueprint":
+            bp_data = body.get("blueprint")
+            if not isinstance(bp_data, dict):
+                self._send_json(400, {"ok": False, "error": "Missing blueprint object."})
+                return
+            bp_path = os.path.join(CODER_ROOT, "core", "graph", "android_port_blueprint.json")
+            os.makedirs(os.path.dirname(bp_path), exist_ok=True)
+            with open(bp_path, "w", encoding="utf-8") as f:
+                json.dump(bp_data, f, indent=2)
+            self._send_json(200, {"ok": True, "saved": bp_path})
             return
 
         if self.path == "/api/diag":
@@ -210,7 +231,7 @@ class CoderBridgeHandler(SimpleHTTPRequestHandler):
 def main():
     port = int(os.environ.get("CODER_PORT", "8080"))
     server = ThreadingHTTPServer(("127.0.0.1", port), CoderBridgeHandler)
-    print(f"[*] Coder Local Bridge v26 listening on http://127.0.0.1:{port}")
+    print(f"[*] Coder Local Bridge v28 listening on http://127.0.0.1:{port}")
     print(f"[*] Serving workspace: {CODER_ROOT}")
     default_repo = detect_default_repo()
     if default_repo:
