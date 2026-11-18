@@ -6,7 +6,9 @@ const CORE_ASSETS = [
     "./js/android_sdk_knowledge.js",
     "./js/session_persistence.js",
     "./js/neuro_symbolic_engine.js",
-    "./js/ide_core.js"
+    "./js/ide_core.js",
+    "./js/vision_runtime_analyzer.js",
+    "./js/port_fixes.js"
 ];
 
 self.addEventListener("install", (event) => {
@@ -28,6 +30,7 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
         fetch(event.request)
             .then((resp) => {
+                if (!resp.ok) return resp;
                 const clone = resp.clone();
                 caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone)).catch(() => {});
                 return resp;
