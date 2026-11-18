@@ -1182,8 +1182,8 @@ class NeuroSymbolicEngine {
         while ((pdm = ptrDeclRegex.exec(fullText)) !== null) {
             pointerIdentifiers.add(pdm[1]);
         }
-        const intOffsetBlocklist = /(?:offset|size|len|length|count|index|idx|num|id|flags|mask|stride|width|height|pitch|format|type|state|mode|status|timer|frame|tick|seed|crc|hash|volume|pan|freq|rate|channel|voice|seq|bank|track|rom|vrom|segment|page|sector|block|tag|key|val|value|param|arg|res|ret|err|code|cmd|op)$/i;
-        const ptrCastRegex = /\(\s*(?:u32|s32|uint32_t|int32_t|unsigned\s+int|int)\s*\)\s*(&?[a-zA-Z_][a-zA-Z0-9_]*(?:->[a-zA-Z_][a-zA-Z0-9_]*)?)/g;
+        const intOffsetBlocklist = /(?:offset|size|len|length|count|samples|index|idx|num|id|flags|mask|stride|width|height|pitch|format|type|state|mode|status|timer|frame|tick|seed|crc|hash|volume|pan|freq|rate|channel|voice|seq|bank|track|rom|vrom|segment|page|sector|block|tag|key|val|value|param|arg|res|ret|err|code|cmd|op|table|tbl|lut|array|list|map)$/i;
+        const ptrCastRegex = /\(\s*(?:u32|s32|uint32_t|int32_t|unsigned\s+int|int)\s*\)\s*(&?[a-zA-Z_][a-zA-Z0-9_]*(?:(?:->|\.)[a-zA-Z_][a-zA-Z0-9_]*)?)/g;
         const longFieldRegex = /^\s*(?:unsigned\s+)?long\s+[a-zA-Z_][a-zA-Z0-9_*\[\]\s]*;/;
         const unalignedCastRegex = /\*\s*\(\s*(?:u32|s32|u16|s16|uint32_t|uint16_t)\s*\*\s*\)/;
         const dmaBufferRegex = /\b(?:Gfx|Vtx|Mtx|OSTask|OSMesg)\s+[a-zA-Z_][a-zA-Z0-9_]*\s*\[/;
@@ -1205,10 +1205,13 @@ class NeuroSymbolicEngine {
             while ((pcm = ptrCastRegex.exec(trimmed)) !== null) {
                 const expr = pcm[1];
                 const isAddressOf = expr.startsWith("&");
-                const baseIdent = expr.replace(/^&/, "").split("->")[0];
-                const isExplicitPtr = pointerIdentifiers.has(baseIdent);
-                const hasPtrNaming = /(?:^|_)(?:ptr|addr|address|buf|buffer|mem|heap|stack|dst|src|data|handle|win|window|surface|ctx|context)(?:_|$)/i.test(baseIdent) && !intOffsetBlocklist.test(baseIdent);
-                if ((isAddressOf || isExplicitPtr || hasPtrNaming) && !intOffsetBlocklist.test(baseIdent)) {
+                const cleanExpr = expr.replace(/^&/, "");
+                const parts = cleanExpr.split(/->|\./);
+                const leafIdent = parts[parts.length - 1];
+                // If accessing a struct field (e.g. bf->bankCount), inspect the leaf field name, NOT the struct pointer!
+                const isExplicitPtr = parts.length === 1 && pointerIdentifiers.has(leafIdent);
+                const hasPtrNaming = /(?:^|_)(?:ptr|addr|address|buf|buffer|mem|heap|stack|dst|src|handle|win|window|surface|ctx|context)(?:_|$)/i.test(leafIdent);
+                if ((isAddressOf || isExplicitPtr || hasPtrNaming) && !intOffsetBlocklist.test(leafIdent)) {
                     confirmedPtrExprs.push(expr);
                 }
             }

@@ -385,12 +385,35 @@ window.addEventListener('DOMContentLoaded', updateStatusBar);
         try {
             const restored = await window.coderPersistence.restoreFullSession(engine);
             if (restored && engine.fileSummaries && engine.fileSummaries.size > 0) {
+                // Rebuild virtual file map & folder tree from persisted engine.fileSummaries
+                const paths = Array.from(engine.fileSummaries.keys()).sort();
+                if (typeof workspaceFiles !== "undefined" && workspaceFiles instanceof Map) {
+                    for (const p of paths) {
+                        if (!workspaceFiles.has(p)) workspaceFiles.set(p, { path: p, offlineCached: true });
+                    }
+                }
+                if (typeof ingestFilesInBatches === "function") {
+                    try { ingestFilesInBatches(paths); } catch (_) {}
+                } else {
+                    const treeEl = document.getElementById("file-tree") || document.getElementById("workspace-tree");
+                    if (treeEl) {
+                        const dirs = new Set();
+                        for (const p of paths) {
+                            const segs = p.split("/");
+                            if (segs.length > 1) dirs.add(segs.slice(0, 2).join("/"));
+                        }
+                        treeEl.innerHTML = `<div style="color:#4ade80;padding:6px 8px;font-size:12px;">&#9679; Offline Cached Workspace (${paths.length} files) &mdash; click Open Workspace anytime to re-grant disk write permissions</div>` +
+                            Array.from(dirs).sort().map(d => `<div style="padding:2px 12px;color:#eab308;font-size:12px;">&#128193; ${d}/</div>`).join("");
+                    }
+                }
                 const chatBox = document.getElementById("chat-log") || document.getElementById("agent-output") || document.querySelector(".chat-messages");
                 if (chatBox && restored.chatHtml) {
                     chatBox.innerHTML = restored.chatHtml;
                 }
                 if (restored.stagedDiff && typeof renderStagedDiff === "function") {
                     renderStagedDiff(restored.stagedDiff);
+                } else if (engine.auditFindings && engine.auditFindings.length > 0 && typeof stageFindingFix === "function") {
+                    stageFindingFix(engine.auditFindings[0]);
                 }
                 if (typeof updateStatusBar === "function") {
                     updateStatusBar();
