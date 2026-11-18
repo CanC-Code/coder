@@ -278,6 +278,9 @@ class CoderBridgeHandler(SimpleHTTPRequestHandler):
             repo = os.path.expanduser(body.get("repo") or detect_default_repo())
             rel_path = body.get("filePath", "")
             content = body.get("content")
+            _repo_base = os.path.basename(os.path.normpath(repo))
+            if _repo_base and rel_path.startswith(_repo_base + os.sep):
+                rel_path = rel_path[len(_repo_base) + 1:]
             if not repo or not os.path.isdir(repo) or not rel_path or content is None:
                 self._send_json(400, {"ok": False, "error": "Missing repo, filePath, or content."})
                 return

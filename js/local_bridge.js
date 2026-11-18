@@ -172,7 +172,7 @@
     appendAgentMessage(
       `<strong>Batch Apply Complete:</strong> Staged <strong>${applied}</strong> deterministic fix(es) across <strong>${Object.keys(patchedContents || {}).length}</strong> file(s) ` +
       `(${skippedAdvisory} advisory-only skipped, ${skippedUnloaded} unloaded skipped)` +
-      `${bridgeState.connected ? " and synced modified files to disk via Termux bridge." : "."}`
+      `${bridgeState.connected ? (localStorage.getItem("coder_target_repo") ? " and synced modified files to disk via Termux bridge." : " — NOT synced: repo pill is empty.") : "."}`
     );
   };
 
