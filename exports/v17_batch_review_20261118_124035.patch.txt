@@ -1,0 +1,68 @@
+================================================================================
+ v17 NEURO-SYMBOLIC BATCH APPLY & REVIEW BUNDLE
+ Generated Timestamp: 20261118_124035
+================================================================================
+
+--- 1. BATCH STAGED GIT STATUS ---
+A  core/compiler/batch_export_engine.py
+
+
+--- 2. COMPLETE STAGED CODE DIFFS ---
+diff --git a/core/compiler/batch_export_engine.py b/core/compiler/batch_export_engine.py
+new file mode 100644
+index 0000000..3c3d117
+--- /dev/null
++++ b/core/compiler/batch_export_engine.py
+@@ -0,0 +1,50 @@
++#!/usr/bin/env python3
++import os
++import sys
++import datetime
++import subprocess
++
++class BatchExportEngine:
++    def __init__(self, workspace_root):
++        self.workspace_root = workspace_root
++        self.exports_dir = os.path.join(workspace_root, "exports")
++        os.makedirs(self.exports_dir, exist_ok=True)
++
++    def process_and_export(self):
++        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
++        export_filename = f"v17_batch_review_{timestamp}.patch.txt"
++        export_path = os.path.join(self.exports_dir, export_filename)
++
++        print(f"[*] [v17] Executing batch apply on staged modifications and capturing full diff bundle...")
++
++        # Automatically stage all modified and untracked code modifications
++        try:
++            subprocess.run(["git", "add", "-A"], cwd=self.workspace_root, check=True)
++            git_status = subprocess.check_output(["git", "status", "-s"], universal_newlines=True, cwd=self.workspace_root)
++            git_diff = subprocess.check_output(["git", "diff", "--cached"], universal_newlines=True, cwd=self.workspace_root)
++        except Exception as e:
++            git_status = f"Git status error: {e}"
++            git_diff = f"Git diff error: {e}"
++
++        report_content = "=" * 80 + "\n"
++        report_content += f" v17 NEURO-SYMBOLIC BATCH APPLY & REVIEW BUNDLE\n"
++        report_content += f" Generated Timestamp: {timestamp}\n"
++        report_content += "=" * 80 + "\n\n"
++
++        report_content += "--- 1. BATCH STAGED GIT STATUS ---\n"
++        report_content += git_status + "\n\n"
++
++        report_content += "--- 2. COMPLETE STAGED CODE DIFFS ---\n"
++        report_content += git_diff + "\n\n"
++
++        with open(export_path, "w", encoding="utf-8") as f:
++            f.write(report_content)
++
++        print(f"=== [v17] BATCH APPLY & EXPORT COMPLETE ===")
++        print(f"  Batch review file saved to: {export_path}")
++        print(f"[+] All fixes batch-applied to workspace index and ready for external sync.")
++
++if __name__ == "__main__":
++    workspace = sys.argv[1] if len(sys.argv) > 1 else "."
++    engine = BatchExportEngine(workspace)
++    engine.process_and_export()
+
+
