@@ -92,13 +92,18 @@
           } else if (info.derefLine) {
             f.severity = "CRITICAL";
             f.reason = "A pointer is truncated to 32 bits into '" + info.lhs + "', then cast back to a pointer at line " + info.derefLine + ". Dereferencing it faults (SIGSEGV)." + tamper;
-            if (info.decl) extra.push({
-              severity: "CRITICAL", category: "ARM64 Pointer Truncation (companion declaration)",
-              filePath: f.filePath, line: info.decl.line, code: info.decl.text.trim(),
-              reason: "'" + info.lhs + "' holds a pointer-sized value; a 32-bit declaration truncates it again on assignment, so the (uintptr_t) cast at line " + f.line + " has no effect until this is widened.",
-              replaceLine: true, fixSuggestion: info.decl.text.trim().replace(TYPE_RE, "uintptr_t"),
-              requiredHeader: f.requiredHeader || null, verificationStatus: "PATTERN_MATCHED", verificationNotes: [], port17: true
-            });
+            if (info.decl) {
+              const bundleId = "trunc:" + f.filePath + ":" + info.decl.line + "->" + f.line;
+              f.bundleId = bundleId;
+              extra.push({
+                severity: "CRITICAL", category: "ARM64 Pointer Truncation (companion declaration)",
+                filePath: f.filePath, line: info.decl.line, code: info.decl.text.trim(),
+                reason: "'" + info.lhs + "' holds a pointer-sized value; a 32-bit declaration truncates it again on assignment, so the (uintptr_t) cast at line " + f.line + " has no effect until this is widened.",
+                replaceLine: true, fixSuggestion: info.decl.text.trim().replace(TYPE_RE, "uintptr_t"),
+                requiredHeader: f.requiredHeader || null, verificationStatus: "PATTERN_MATCHED", verificationNotes: [],
+                bundleId, port17: true
+              });
+            }
           } else {
             f.severity = "LOW"; f.advisory = true;
             f.reason = "Pointer truncated to 32 bits but no cast back to a pointer was found within 60 lines; it is only used as an integer. Behavior is probably unchanged; confirm with clang." + tamper;
@@ -192,8 +197,33 @@
         appendAgentMessage("<strong>Commit blocked:</strong> the original text of <code>" + esc(p) + "</code> is not loaded (restored session or file over 2 MB). Re-open the workspace first.");
         return;
       }
+      const activeF = engine.auditFindings[activeFindingIndex];
+      if (activeF && activeF.bundleId) {
+        const mates = engine.auditFindings.filter(x => x !== activeF && x.bundleId === activeF.bundleId && x.filePath === p && x.replaceLine);
+        if (mates.length > 0) {
+          let srcText = patchedContents[p] !== undefined ? patchedContents[p] : tx;
+          const lines = srcText.split("\n");
+          const sortedMates = [...mates].sort((a, b) => b.line - a.line);
+          for (const m of sortedMates) {
+            if (lines[m.line - 1] !== undefined) {
+              const indent = (lines[m.line - 1].match(/^\s*/) || [""])[0];
+              lines[m.line - 1] = indent + m.fixSuggestion.trim();
+            }
+          }
+          patchedContents[p] = lines.join("\n");
+          texts()[p] = patchedContents[p];
+          appendAgentMessage("<strong>Atomic Bundle Applied:</strong> Co-updated " + mates.length + " companion declaration line(s) in <code>" + esc(p) + "</code>.");
+        }
+      }
     }
-    return origApprove();
+    const res = await origApprove();
+    if (pd && patchedContents[pd.filePath] && typeof window.syncPatchedFileToDisk === "function") {
+      const synced = await window.syncPatchedFileToDisk(pd.filePath, patchedContents[pd.filePath]);
+      if (synced) {
+        appendAgentMessage("<strong>Disk Synced:</strong> Wrote updated <code>" + esc(pd.filePath) + "</code> directly to Termux repo.");
+      }
+    }
+    return res;
   };
 
   // 5. Clear the database that is actually used (canceling pending debounced saves).

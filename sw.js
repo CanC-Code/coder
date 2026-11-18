@@ -1,4 +1,4 @@
-const CACHE_NAME = "coder-offline-v21";
+const CACHE_NAME = "coder-offline-v22";
 const CORE_ASSETS = [
     "./",
     "./index.html",
@@ -8,7 +8,8 @@ const CORE_ASSETS = [
     "./js/neuro_symbolic_engine.js",
     "./js/ide_core.js",
     "./js/vision_runtime_analyzer.js",
-    "./js/port_fixes.js"
+    "./js/port_fixes.js",
+    "./js/local_bridge.js"
 ];
 
 self.addEventListener("install", (event) => {
