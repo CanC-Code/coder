@@ -1751,20 +1751,60 @@ ${stub.decompImpl.snippet}`
             ``
         ];
 
+        const localIncludes = new Set();
+        for (const sf of stubFiles) {
+            const text = getFileText(sf);
+            if (!text) continue;
+            for (const line of text.split('\n')) {
+                const t = line.trim();
+                if (t.startsWith('#include "')) localIncludes.add(t);
+            }
+        }
+        if (localIncludes.size > 0) {
+            unifiedBlocks.splice(4, 0, ...Array.from(localIncludes));
+        }
+
         let deduplicatedCount = 0;
         for (const sf of stubFiles) {
             const text = getFileText(sf);
             if (!text) continue;
             unifiedBlocks.push(`// --- Source: ${sf} ---`);
-            for (const line of text.split('\n')) {
+            const sfLines = text.split('\n');
+            let skipBraceDepth = 0;
+            let skippingBlock = false;
+
+            for (let idx = 0; idx < sfLines.length; idx++) {
+                const line = sfLines[idx];
                 const t = line.trim();
                 if (t.startsWith("#include ")) continue;
-                const fnMatch = t.match(/^(?:extern\s+"C"\s+)?(?:static\s+|inline\s+)?(?:[a-zA-Z0-9_*&:\s]+?)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^;{}]*\)\s*\{/);
-                if (fnMatch) {
+
+                if (skippingBlock) {
+                    for (const ch of line) {
+                        if (ch === "{") skipBraceDepth++;
+                        else if (ch === "}") skipBraceDepth--;
+                    }
+                    if (skipBraceDepth <= 0) skippingBlock = false;
+                    continue;
+                }
+
+                const fnMatch = t.match(/^(?:extern\s+"C"\s+)?(?:static\s+|inline\s+)?(?:[a-zA-Z0-9_*&:\s]+?)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^;{}]*\)\s*\{?$/);
+                if (fnMatch && !["if", "for", "while", "switch", "catch", "sizeof", "return"].includes(fnMatch[1])) {
                     const sym = fnMatch[1];
                     if (seenSymbols.has(sym)) {
                         deduplicatedCount++;
-                        unifiedBlocks.push(`// [Deduplicated duplicate symbol: ${sym} from ${sf}]`);
+                        unifiedBlocks.push(`// [Deduplicated duplicate symbol: ${sym} from ${sf}:${idx + 1}]`);
+                        skippingBlock = true;
+                        skipBraceDepth = 0;
+                        for (const ch of line) {
+                            if (ch === "{") skipBraceDepth++;
+                            else if (ch === "}") skipBraceDepth--;
+                        }
+                        if (skipBraceDepth <= 0 && !line.includes("{")) {
+                            // Opening brace is on a subsequent line
+                            skipBraceDepth = 0;
+                        } else if (skipBraceDepth <= 0) {
+                            skippingBlock = false;
+                        }
                         continue;
                     }
                     seenSymbols.add(sym);

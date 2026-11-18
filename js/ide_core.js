@@ -88,7 +88,7 @@ async function ingestFilesInBatches(fileArray, isManual = false) {
                     return;
                 }
                 const storageKey = isManual ? `manuals/${item.path}` : item.path;
-                if (text.length < 350000) {
+                if (text.length < 2000000) {
                     cachedFileTexts[storageKey] = text;
                 }
                 if (isManual) {
@@ -284,8 +284,15 @@ function sendGoal() {
     chatHistory.push({ sender: 'user', text });
     input.value = '';
 
-    setTimeout(() => {
+    setTimeout(async () => {
         const qLower = text.toLowerCase().trim();
+        const hydrateAllWorkspaceTexts = async () => {
+            for (const [p, fObj] of Object.entries(workspaceFiles)) {
+                if (cachedFileTexts[p] === undefined && fObj && typeof fObj.text === "function") {
+                    try { cachedFileTexts[p] = await fObj.text(); } catch (e) {}
+                }
+            }
+        };
         const getFileText = (p) => patchedContents[p] !== undefined ? patchedContents[p] : (cachedFileTexts[p] || "");
         const applyFileEdits = (edits) => {
             for (const ed of edits) {
@@ -310,6 +317,7 @@ function sendGoal() {
         const delMatch = text.match(/^(?:delete|remove)\s+(?:file\s+)?(\S+)$/i);
 
         if (moveMatch) {
+            await hydrateAllWorkspaceTexts();
             const { html, fileEdits } = engine.planFileMove(moveMatch[1], moveMatch[2], getFileText);
             applyFileEdits(fileEdits);
             appendAgentMessage(html);
@@ -317,6 +325,7 @@ function sendGoal() {
             return;
         }
         if (delMatch) {
+            await hydrateAllWorkspaceTexts();
             const { html, fileEdits } = engine.planFileDelete(delMatch[1], getFileText);
             applyFileEdits(fileEdits);
             appendAgentMessage(html);
@@ -324,6 +333,7 @@ function sendGoal() {
             return;
         }
         if (qLower.includes("unify stub") || qLower.includes("consolidate stub") || qLower.includes("merge stub")) {
+            await hydrateAllWorkspaceTexts();
             const { html, fileEdits } = engine.planStubUnification(getFileText);
             applyFileEdits(fileEdits);
             appendAgentMessage(html);
@@ -388,11 +398,44 @@ async function approveAndSave() {
     pendingDiff = null;
 }
 
-function exportUnifiedPatch() {
+function buildContextUnifiedHunks(origLines, newLines, ctx = 3) {
+    let prefix = 0;
+    while (prefix < origLines.length && prefix < newLines.length && origLines[prefix] === newLines[prefix]) {
+        prefix++;
+    }
+    let suffix = 0;
+    while (
+        suffix < (origLines.length - prefix) &&
+        suffix < (newLines.length - prefix) &&
+        origLines[origLines.length - 1 - suffix] === newLines[newLines.length - 1 - suffix]
+    ) {
+        suffix++;
+    }
+    if (prefix + suffix >= origLines.length && origLines.length === newLines.length) {
+        return [];
+    }
+    const startOrig = Math.max(0, prefix - ctx);
+    const endOrig = Math.min(origLines.length, origLines.length - suffix + ctx);
+    const endNew = Math.min(newLines.length, newLines.length - suffix + ctx);
+
+    const out = [`@@ -${startOrig + 1},${endOrig - startOrig} +${startOrig + 1},${endNew - startOrig} @@`];
+    for (let i = startOrig; i < prefix; i++) out.push(` ${origLines[i]}`);
+    for (let i = prefix; i < origLines.length - suffix; i++) out.push(`-${origLines[i]}`);
+    for (let i = prefix; i < newLines.length - suffix; i++) out.push(`+${newLines[i]}`);
+    for (let i = origLines.length - suffix; i < endOrig; i++) out.push(` ${origLines[i]}`);
+    return out;
+}
+
+async function exportUnifiedPatch() {
     const paths = Object.keys(patchedContents);
     if (paths.length === 0) {
-        appendAgentMessage("No approved patches staged yet. Review findings and tap <strong>Approve & Commit NDK/JNI Fix</strong> first.");
+        appendAgentMessage("No approved patches staged yet. Review findings and tap <strong>Approve & Commit Fix</strong> first.");
         return;
+    }
+    for (const p of paths) {
+        if (cachedFileTexts[p] === undefined && workspaceFiles[p] && typeof workspaceFiles[p].text === "function") {
+            try { cachedFileTexts[p] = await workspaceFiles[p].text(); } catch (e) {}
+        }
     }
     const hunks = [];
     for (const p of paths) {
@@ -416,12 +459,13 @@ function exportUnifiedPatch() {
             for (const l of newLines) hunks.push(`+${l}`);
         } else {
             const newLines = patchedContents[p].split('\n');
-            hunks.push(`diff --git a/${p} b/${p}`);
-            hunks.push(`--- a/${p}`);
-            hunks.push(`+++ b/${p}`);
-            hunks.push(`@@ -1,${origLines.length} +1,${newLines.length} @@`);
-            for (const l of origLines) hunks.push(`-${l}`);
-            for (const l of newLines) hunks.push(`+${l}`);
+            const ctxHunks = buildContextUnifiedHunks(origLines, newLines, 3);
+            if (ctxHunks.length > 0) {
+                hunks.push(`diff --git a/${p} b/${p}`);
+                hunks.push(`--- a/${p}`);
+                hunks.push(`+++ b/${p}`);
+                hunks.push(...ctxHunks);
+            }
         }
     }
     const patchText = hunks.join('\n') + '\n';
