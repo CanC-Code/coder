@@ -208,6 +208,67 @@ class CoderBridgeHandler(SimpleHTTPRequestHandler):
                 self._send_json(500, {"ok": False, "error": str(e)})
             return
 
+        if self.path == "/api/pipeline":
+            repo = os.path.expanduser(body.get("repo") or detect_default_repo() or CODER_ROOT)
+            task = str(body.get("task") or "").strip()
+            if not os.path.isdir(repo):
+                self._send_json(400, {"ok": False, "error": f"Target directory not found: {repo}"})
+                return
+
+            task_map = {
+                "profile":        [sys.executable, os.path.join(CODER_ROOT, "core", "profiler", "codebase_profiler.py"), repo],
+                "lexicon":        [sys.executable, os.path.join(CODER_ROOT, "core", "graph", "lexicon.py"), repo],
+                "infill":         [sys.executable, os.path.join(CODER_ROOT, "core", "compiler", "stub_infiller.py"), repo],
+                "generate_stubs": [sys.executable, os.path.join(CODER_ROOT, "core", "compiler", "dynamic_generator.py"), repo],
+                "build_audit":    [sys.executable, os.path.join(CODER_ROOT, "instrumentation", "build_auditor.py"), repo],
+                "validate_graph": [sys.executable, os.path.join(CODER_ROOT, "instrumentation", "graph_validator.py"), "--selftest"],
+                "batch_export":   [sys.executable, os.path.join(CODER_ROOT, "export", "batch_export_engine.py"), repo],
+                "patch_export":   [sys.executable, os.path.join(CODER_ROOT, "export", "patch_exporter.py"), repo],
+                "auto_export":    [sys.executable, os.path.join(CODER_ROOT, "export", "auto_exporter.py"), repo],
+            }
+
+            if task == "orchestrate":
+                try:
+                    from core.graph.host_orchestrator import HostOrchestrator
+                    orch = HostOrchestrator(repo)
+                    count = orch.ingest_directory(".")
+                    self._send_json(200, {
+                        "ok": True,
+                        "task": task,
+                        "output": f"[+] HostOrchestrator ingested {count} C/C++ files: {len(orch.boxes)} ConceptualBoxes, {len(orch.tethers)} Tethers built."
+                    })
+                except Exception as e:
+                    self._send_json(500, {"ok": False, "error": str(e)})
+                return
+
+            # Resolve script path dynamically even if directory layout varies
+            if task not in task_map:
+                self._send_json(400, {"ok": False, "error": f"Unknown pipeline task: {task}"})
+                return
+
+            cmd = task_map[task]
+            if not os.path.isfile(cmd[1]):
+                # Fallback search by basename anywhere inside CODER_ROOT
+                base = os.path.basename(cmd[1]).lower()
+                for r, _, files in os.walk(CODER_ROOT):
+                    hit = next((fn for fn in files if fn.lower() == base), None)
+                    if hit:
+                        cmd[1] = os.path.join(r, hit)
+                        break
+
+            try:
+                proc = subprocess.run(cmd, cwd=repo, capture_output=True, text=True, timeout=60)
+                out = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
+                self._send_json(200, {
+                    "ok": proc.returncode == 0,
+                    "task": task,
+                    "returncode": proc.returncode,
+                    "output": out.strip() or "(No output)"
+                })
+            except Exception as e:
+                self._send_json(500, {"ok": False, "error": str(e)})
+            return
+
         if self.path == "/api/apply_patch":
             repo = os.path.expanduser(body.get("repo") or detect_default_repo())
             rel_path = body.get("filePath", "")

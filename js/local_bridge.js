@@ -293,3 +293,163 @@
     probeBridge();
   });
 })();
+
+// Web GUI Pipeline Task Dispatcher (v24)
+window.runPipelineTask = async function (task, label) {
+  if (!window.coderBridge || !window.coderBridge.connected) {
+    // Offline browser fallbacks when running without Termux dev_server.py
+    if (task === "batch_export" && typeof window.batchApplySafeFindings === "function") {
+      return window.batchApplySafeFindings();
+    }
+    if ((task === "patch_export" || task === "auto_export") && typeof window.exportCompleteReviewText === "function") {
+      return window.exportCompleteReviewText();
+    }
+    appendAgentMessage(
+      `<strong>Local Bridge Offline:</strong> Task <code>${label || task}</code> requires the Termux Python bridge (` +
+      `<code>./scripts/serve.sh</code>), or use the browser-native Port Audit / Establish Port / Export Full .txt controls.`
+    );
+    return;
+  }
+
+  const repo = localStorage.getItem("coder_target_repo") || window.coderBridge.defaultRepo;
+  appendAgentMessage(`Running <strong>${label || task}</strong> on <code>${repo || "workspace"}</code>...`);
+  try {
+    const resp = await fetch("/api/pipeline", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repo, task })
+    });
+    const data = await resp.json();
+    if (!data.ok && !data.output) {
+      appendAgentMessage(`<strong>${label || task} Failed:</strong> ${data.error || "Unknown error"}`);
+      return;
+    }
+    const statusBadge = data.ok
+      ? `<span style="color:#3fb950;">[PASS]</span>`
+      : `<span style="color:#f85149;">[DEFECTS FOUND]</span>`;
+    appendAgentMessage(
+      `<strong>${label || task}</strong> ${statusBadge}<br>` +
+      `<pre style="white-space:pre-wrap;font-size:11px;max-height:220px;overflow:auto;background:#0d1117;padding:8px;border-radius:4px;border:1px solid #30363d;">${String(data.output || "").replace(/</g, "&lt;")}</pre>`
+    );
+  } catch (e) {
+    appendAgentMessage(`<strong>${label || task} Request Error:</strong> ${e.message}`);
+  }
+};
+
+window.handleScreenshotInspect = async function (event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  try {
+    if (window.coderVisionRuntime && typeof window.coderVisionRuntime.assessScreenshotFile === "function") {
+      const res = await window.coderVisionRuntime.assessScreenshotFile(
+        file,
+        engine,
+        p => (typeof patchedContents !== "undefined" && patchedContents[p]) || (typeof cachedFileTexts !== "undefined" && cachedFileTexts[p]) || ""
+      );
+      appendAgentMessage(res.html);
+      if (res.synthesizedDiff && typeof renderSynthesizedDiff === "function") {
+        renderSynthesizedDiff(res.synthesizedDiff);
+      }
+    }
+  } catch (e) {
+    appendAgentMessage(`<strong>Vision Inspection Error:</strong> ${e.message}`);
+  } finally {
+    event.target.value = "";
+  }
+};
+
+window.handleCrashLogUpload = async function (event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    if (window.coderVisionRuntime && typeof window.coderVisionRuntime.analyzeRuntimeCrashLog === "function") {
+      const res = window.coderVisionRuntime.analyzeRuntimeCrashLog(
+        text,
+        engine,
+        p => (typeof patchedContents !== "undefined" && patchedContents[p]) || (typeof cachedFileTexts !== "undefined" && cachedFileTexts[p]) || ""
+      );
+      appendAgentMessage(res.html);
+      if (res.synthesizedDiff && typeof renderSynthesizedDiff === "function") {
+        renderSynthesizedDiff(res.synthesizedDiff);
+      }
+    }
+  } catch (e) {
+    appendAgentMessage(`<strong>Crash Log Analysis Error:</strong> ${e.message}`);
+  } finally {
+    event.target.value = "";
+  }
+};
+
+/* ==========================================================================
+   v25 GUI Enhancements: Repository Pill & Global Drag-and-Drop Ingestion
+   ========================================================================== */
+
+function updateRepoPillDisplay() {
+  const pill = document.getElementById("ns-repo-pill");
+  if (!pill) return;
+  const repo = localStorage.getItem("coder_target_repo") || (window.coderBridge && window.coderBridge.defaultRepo) || "~/coder";
+  const shortName = repo.split("/").pop() || repo;
+  pill.textContent = `Repo: ${shortName}`;
+  pill.title = `Active Local Repository: ${repo} (Click to switch)`;
+}
+
+window.promptSwitchRepo = function () {
+  const current = localStorage.getItem("coder_target_repo") || (window.coderBridge && window.coderBridge.defaultRepo) || "~/Diddy-Kong-Racing";
+  const entered = prompt("Enter target local repository path on Termux:", current);
+  if (entered !== null) {
+    const clean = entered.trim();
+    localStorage.setItem("coder_target_repo", clean);
+    updateRepoPillDisplay();
+    appendAgentMessage(`<strong>Target Repository Switched:</strong> <code>${clean}</code>`);
+  }
+};
+
+// Global Drag-and-Drop Event Handlers
+window.addEventListener("DOMContentLoaded", () => {
+  updateRepoPillDisplay();
+
+  const dropZone = document.body;
+  dropZone.addEventListener("dragover", e => {
+    e.preventDefault();
+    e.stopPropagation();
+  });
+
+  dropZone.addEventListener("drop", async e => {
+    e.preventDefault();
+    e.stopPropagation();
+    const files = e.dataTransfer && e.dataTransfer.files;
+    if (!files || files.length === 0) return;
+
+    for (const file of files) {
+      const name = file.name.toLowerCase();
+      if (/\.(z64|v64|n64|rom|bin)$/.test(name)) {
+        appendAgentMessage(`Detected dropped ROM: <code>${file.name}</code>. Analyzing...`);
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        const dummyInput = { target: { files: dt.files, value: "" } };
+        if (typeof window.handleRomSelect === "function") {
+          await window.handleRomSelect(dummyInput);
+        }
+      } else if (/\.(png|jpg|jpeg|webp)$/.test(name)) {
+        appendAgentMessage(`Detected dropped screenshot: <code>${file.name}</code>. Running Vision Framebuffer Assessment...`);
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        const dummyInput = { target: { files: dt.files, value: "" } };
+        if (typeof window.handleScreenshotInspect === "function") {
+          await window.handleScreenshotInspect(dummyInput);
+        }
+      } else if (/\.(log|txt|dump)$/.test(name)) {
+        appendAgentMessage(`Detected dropped crash log: <code>${file.name}</code>. Parsing runtime traceback...`);
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        const dummyInput = { target: { files: dt.files, value: "" } };
+        if (typeof window.handleCrashLogUpload === "function") {
+          await window.handleCrashLogUpload(dummyInput);
+        }
+      } else {
+        appendAgentMessage(`Dropped file <code>${file.name}</code> staged in workspace memory.`);
+      }
+    }
+  });
+});

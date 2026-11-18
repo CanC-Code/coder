@@ -7,6 +7,42 @@
     <link rel="stylesheet" href="css/theme.css">
 </head>
 <body>
+
+<!-- Neuro-Symbolic Command Ribbon (100% Web GUI Execution) -->
+<div id="ns-command-ribbon">
+  <button type="button" id="ns-repo-pill" onclick="promptSwitchRepo()" style="background:#21262d;border:1px solid #30363d;color:#7ee787;padding:3px 8px;border-radius:12px;font-weight:600;cursor:pointer;" title="Click to switch repo">Repo: loading...</button>
+  <span style="color:#30363d;">|</span> style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 12px;background:#161b22;border-bottom:1px solid #30363d;font-size:11px;">
+  <span style="color:#8b949e;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;">Port:</span>
+  <button type="button" onclick="establishAndroidPort()" style="background:#1f6feb;border:none;color:#fff;padding:4px 8px;border-radius:4px;font-weight:600;cursor:pointer;">Establish Port</button>
+  <button type="button" onclick="validateAgainstBlueprint()" style="background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:4px 8px;border-radius:4px;cursor:pointer;">Validate Port</button>
+  <button type="button" onclick="learnAndroidBlueprint()" style="background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:4px 8px;border-radius:4px;cursor:pointer;">Learn Blueprint</button>
+  <button type="button" onclick="document.getElementById('gui-rom-input').click()" style="background:#21262d;border:1px solid #30363d;color:#58a6ff;padding:4px 8px;border-radius:4px;cursor:pointer;">Analyze ROM</button>
+
+  <span style="color:#30363d;">|</span>
+  <span style="color:#8b949e;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;">Inspect:</span>
+  <button type="button" onclick="document.getElementById('gui-shot-input').click()" style="background:#21262d;border:1px solid #30363d;color:#d2a8ff;padding:4px 8px;border-radius:4px;cursor:pointer;">Vision Frame</button>
+  <button type="button" onclick="document.getElementById('gui-log-input').click()" style="background:#21262d;border:1px solid #30363d;color:#ff7b72;padding:4px 8px;border-radius:4px;cursor:pointer;">Crash Log</button>
+  <button type="button" onclick="runPipelineTask('build_audit', 'Android Build & R8 Audit')" style="background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:4px 8px;border-radius:4px;cursor:pointer;">Build/R8 Audit</button>
+
+  <span style="color:#30363d;">|</span>
+  <span style="color:#8b949e;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;">Pipeline:</span>
+  <button type="button" onclick="runPipelineTask('profile', 'Codebase Profiler')" style="background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:4px 8px;border-radius:4px;cursor:pointer;">Profile</button>
+  <button type="button" onclick="runPipelineTask('lexicon', 'Dynamic Lexicon Learner')" style="background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:4px 8px;border-radius:4px;cursor:pointer;">Lexicon</button>
+  <button type="button" onclick="runPipelineTask('infill', 'Stub Infiller')" style="background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:4px 8px;border-radius:4px;cursor:pointer;">Infill Stubs</button>
+  <button type="button" onclick="runPipelineTask('generate_stubs', 'Dynamic Stub Generator')" style="background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:4px 8px;border-radius:4px;cursor:pointer;">Gen Stubs</button>
+  <button type="button" onclick="runPipelineTask('orchestrate', 'Graph Orchestrator')" style="background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:4px 8px;border-radius:4px;cursor:pointer;">Build Graph</button>
+
+  <span style="color:#30363d;">|</span>
+  <span style="color:#8b949e;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;">Commit:</span>
+  <button type="button" onclick="batchApplySafeFindings()" style="background:#238636;border:none;color:#fff;padding:4px 8px;border-radius:4px;font-weight:600;cursor:pointer;">Batch Apply Safe</button>
+  <button type="button" onclick="exportCompleteReviewText()" style="background:#8957e5;border:none;color:#fff;padding:4px 8px;border-radius:4px;font-weight:600;cursor:pointer;">Export Full .txt</button>
+  <button type="button" onclick="runPipelineTask('batch_export', 'Git Batch Review Bundle')" style="background:#21262d;border:1px solid #30363d;color:#7ee787;padding:4px 8px;border-radius:4px;cursor:pointer;">Git Bundle</button>
+
+  <input type="file" id="gui-rom-input" accept=".z64,.v64,.n64,.rom,.bin" style="display:none" onchange="handleRomSelect(event)" />
+  <input type="file" id="gui-shot-input" accept="image/*" style="display:none" onchange="handleScreenshotInspect(event)" />
+  <input type="file" id="gui-log-input" accept=".log,.txt,.dump" style="display:none" onchange="handleCrashLogUpload(event)" />
+</div>
+
     <div class="ide-container">
         <!-- Sidebar File Explorer & Domain Controls -->
         <div class="sidebar">
@@ -91,5 +127,6 @@
     <script src="js/rom_analyzer.js"></script>
     <script src="js/port_blueprint_learner.js"></script>
     <script src="js/local_bridge.js"></script>
+  <script src="js/Session_persistance.js"></script>
 </body>
 </html>
