@@ -263,6 +263,18 @@ function appendAgentMessage(htmlText) {
     chatHistory.push({ sender: 'agent', text: htmlText });
 }
 
+async function handleScreenshotAssess(event) {
+    const file = event.target.files && event.target.files[0];
+    event.target.value = '';
+    if (!file || !window.coderVisionRuntime) return;
+    appendAgentMessage(`Analyzing screenshot <code>${file.name}</code> with Wasm Vision Kernel against ingested framebuffer & GBI specs...`);
+    const getFileText = (p) => patchedContents[p] !== undefined ? patchedContents[p] : (cachedFileTexts[p] || "");
+    const { html, synthesizedDiff } = await window.coderVisionRuntime.assessScreenshotFile(file, engine, getFileText);
+    appendAgentMessage(html);
+    if (synthesizedDiff) renderSynthesizedDiff(synthesizedDiff);
+    updateStatusBar();
+}
+
 function handleKey(event) {
     if (event.key === 'Enter') {
         sendGoal();
@@ -337,6 +349,14 @@ function sendGoal() {
             const { html, fileEdits } = engine.planStubUnification(getFileText);
             applyFileEdits(fileEdits);
             appendAgentMessage(html);
+            updateStatusBar();
+            return;
+        }
+
+        if (window.coderVisionRuntime && window.coderVisionRuntime.isRuntimeCrashLog(text)) {
+            const { html, synthesizedDiff } = window.coderVisionRuntime.analyzeRuntimeCrashLog(text, engine, getFileText);
+            appendAgentMessage(html);
+            if (synthesizedDiff) renderSynthesizedDiff(synthesizedDiff);
             updateStatusBar();
             return;
         }

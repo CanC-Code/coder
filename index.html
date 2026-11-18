@@ -61,7 +61,10 @@
                 <div class="message agent">System online. Android APK Packaging Inspector, Runtime Call-Graph Tracer, ARM64 Alignment Auditor, and Bidirectional Lexicon ready. Mount your workspace and tap <strong>APK & Runtime</strong> or <strong>Port Audit</strong>.</div>
             </div>
             <div class="chat-input-area">
-                <input type="text" id="user-input" placeholder="Try: 'apk packaging', 'audit alignment', or 'trace BkaService.java'..." onkeypress="handleKey(event)">
+                <label style="background:#21262d;border:1px solid var(--border-color);color:var(--text-main);padding:6px 8px;border-radius:4px;font-size:11px;cursor:pointer;white-space:nowrap;" title="Assess game screenshot via Wasm vision kernel">
+                    📷 Frame <input type="file" id="screenshot-input" accept="image/*" style="display:none;" onchange="handleScreenshotAssess(event)">
+                </label>
+                <input type="text" id="user-input" placeholder="Paste logcat/SEGVDUMP, or type 'audit stubs', 'unify stubs', 'trace ...'" onkeypress="handleKey(event)">
                 <button class="btn-approve" onclick="sendGoal()">Send</button>
             </div>
         </div>
@@ -75,6 +78,7 @@
 
     <script src="js/android_sdk_knowledge.js"></script>
     <script src="js/session_persistence.js"></script>
+    <script src="js/vision_runtime_analyzer.js"></script>
     <script src="js/neuro_symbolic_engine.js"></script>
     <script src="js/ide_core.js"></script>
 </body>
