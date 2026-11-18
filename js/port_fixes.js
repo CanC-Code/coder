@@ -198,29 +198,50 @@
         return;
       }
       const activeF = engine.auditFindings[activeFindingIndex];
+      const extraSyncedFiles = [];
       if (activeF && activeF.bundleId) {
-        const mates = engine.auditFindings.filter(x => x !== activeF && x.bundleId === activeF.bundleId && x.filePath === p && x.replaceLine);
-        if (mates.length > 0) {
-          let srcText = patchedContents[p] !== undefined ? patchedContents[p] : tx;
-          const lines = srcText.split("\n");
-          const sortedMates = [...mates].sort((a, b) => b.line - a.line);
-          for (const m of sortedMates) {
+        const mates = engine.auditFindings.filter(x => x !== activeF && x.bundleId === activeF.bundleId && x.replaceLine);
+        const byFile = new Map();
+        for (const m of mates) {
+          if (!byFile.has(m.filePath)) byFile.set(m.filePath, []);
+          byFile.get(m.filePath).push(m);
+        }
+        for (const [mFile, fileMates] of byFile.entries()) {
+          const baseTxt = patchedContents[mFile] !== undefined ? patchedContents[mFile] : texts()[mFile];
+          if (typeof baseTxt !== "string" || /^\/\/ Cached workspace entry/.test(baseTxt)) continue;
+          const lines = baseTxt.split("\n");
+          for (const m of [...fileMates].sort((a, b) => b.line - a.line)) {
             if (lines[m.line - 1] !== undefined) {
               const indent = (lines[m.line - 1].match(/^\s*/) || [""])[0];
               lines[m.line - 1] = indent + m.fixSuggestion.trim();
             }
           }
-          patchedContents[p] = lines.join("\n");
-          texts()[p] = patchedContents[p];
-          appendAgentMessage("<strong>Atomic Bundle Applied:</strong> Co-updated " + mates.length + " companion declaration line(s) in <code>" + esc(p) + "</code>.");
+          patchedContents[mFile] = lines.join("\n");
+          texts()[mFile] = patchedContents[mFile];
+          if (mFile !== p) extraSyncedFiles.push(mFile);
+        }
+        if (mates.length > 0) {
+          appendAgentMessage("<strong>Atomic Cross-File Bundle Applied:</strong> Co-updated " + mates.length + " companion hunk(s) across <code>" + Array.from(byFile.keys()).map(esc).join(", ") + "</code>.");
         }
       }
     }
     const res = await origApprove();
-    if (pd && patchedContents[pd.filePath] && typeof window.syncPatchedFileToDisk === "function") {
-      const synced = await window.syncPatchedFileToDisk(pd.filePath, patchedContents[pd.filePath]);
-      if (synced) {
-        appendAgentMessage("<strong>Disk Synced:</strong> Wrote updated <code>" + esc(pd.filePath) + "</code> directly to Termux repo.");
+    if (pd && typeof window.syncPatchedFileToDisk === "function") {
+      const activeF = engine.auditFindings[activeFindingIndex];
+      const filesToSync = new Set([pd.filePath]);
+      if (activeF && activeF.bundleId) {
+        for (const x of engine.auditFindings) {
+          if (x.bundleId === activeF.bundleId && patchedContents[x.filePath]) filesToSync.add(x.filePath);
+        }
+      }
+      const syncedList = [];
+      for (const fp of filesToSync) {
+        if (patchedContents[fp] && await window.syncPatchedFileToDisk(fp, patchedContents[fp])) {
+          syncedList.push(fp);
+        }
+      }
+      if (syncedList.length > 0) {
+        appendAgentMessage("<strong>Disk Synced:</strong> Wrote updated <code>" + syncedList.map(esc).join(", ") + "</code> directly to Termux repo.");
       }
     }
     return res;

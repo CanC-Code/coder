@@ -49,6 +49,17 @@
 
     appendAgentMessage(`Running <code>scripts/diag.sh</code> on <code>${targetFile}</code>...`);
     try {
+      fetch("/api/ast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo, file: targetFile })
+      }).then(r => r.ok ? r.json() : null).then(astResp => {
+        if (astResp && astResp.ok && astResp.ast && typeof window.ingestClangAstMetadata === "function") {
+          window.ingestClangAstMetadata(astResp.ast);
+          if (typeof engine.finalizeCrossReferences === "function") engine.finalizeCrossReferences();
+        }
+      }).catch(() => {});
+
       const resp = await fetch("/api/diag", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

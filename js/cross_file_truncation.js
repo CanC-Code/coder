@@ -3,8 +3,31 @@
   "use strict";
 
   const RANK = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
-  const INT32_RE = /^(?:const\s+|volatile\s+)*(?:s32|u32|int32_t|uint32_t|int|unsigned\s+int)$/;
-  const PTR_EXPR_RE = /(?:\(\s*(?:u32|s32|uint32_t|int32_t|unsigned\s+int|int)\s*\)\s*(?:&?[A-Za-z_][\w.\->]*)|&[A-Za-z_][\w.\->]*|\b(?:malloc|calloc|realloc|mmap|bka_lookup_addr_by_low32)\s*\()/;
+  const extraInt32Typedefs = new Set();
+  const astStructOverrides = new Map();
+  const astParamOverrides = new Map();
+
+  window.ingestClangAstMetadata = function (ast) {
+    if (!ast) return;
+    for (const td of (ast.resolved_int32_typedefs || [])) extraInt32Typedefs.add(td);
+    for (const sf of (ast.ast_struct_fields || [])) {
+      if (!astStructOverrides.has(sf.name)) astStructOverrides.set(sf.name, []);
+      const list = astStructOverrides.get(sf.name);
+      if (!list.some(x => x.filePath === sf.filePath && x.line === sf.line)) {
+        list.push({ filePath: sf.filePath, line: sf.line, type: sf.qualType, code: `${sf.qualType} ${sf.name};` });
+      }
+    }
+    for (const fp of (ast.ast_func_params || [])) {
+      astParamOverrides.set(fp.name, [{ filePath: fp.filePath, line: fp.line, params: fp.params, signature: fp.name }]);
+    }
+  };
+
+  function isInt32TypeName(t) {
+    const clean = String(t || "").replace(/\b(?:const|volatile|static|register)\b/g, "").trim();
+    if (/^(?:s32|u32|int32_t|uint32_t|int|unsigned\s+int)$/.test(clean)) return true;
+    return extraInt32Typedefs.has(clean);
+  }
+  const PTR_EXPR_RE = /(?:\(\s*[A-Za-z_]\w*\s*\)\s*(?:&?[A-Za-z_][\w.\->]*)|&[A-Za-z_][\w.\->]*|\b(?:malloc|calloc|realloc|mmap|bka_lookup_addr_by_low32)\s*\()/;
 
   function indexDeclarations(texts) {
     const structFields = new Map(); // fieldName -> [{ filePath, line, type, code }]
@@ -47,7 +70,7 @@
             const pm = p.match(/^(.+?)\b([A-Za-z_]\w*)\s*(?:\[[^\]]*\])?$/);
             if (!pm) return { idx, name: "", type: p, isInt32: false };
             const pType = pm[1].trim();
-            return { idx, name: pm[2], type: pType, isInt32: INT32_RE.test(pType) };
+            return { idx, name: pm[2], type: pType, isInt32: isInt32TypeName(pType) };
           });
           if (parsedParams.some(p => p.isInt32)) {
             if (!funcParams.has(fnName)) funcParams.set(fnName, []);
@@ -57,6 +80,12 @@
           }
         }
       }
+    }
+    for (const [k, v] of astStructOverrides.entries()) {
+      if (!structFields.has(k)) structFields.set(k, v);
+    }
+    for (const [k, v] of astParamOverrides.entries()) {
+      funcParams.set(k, v);
     }
     return { structFields, funcParams };
   }
@@ -97,7 +126,7 @@
               verificationNotes: [],
               port17: true
             });
-            if (targetDecl.filePath === filePath) {
+            if (targetDecl.filePath && targetDecl.line) {
               added.push({
                 severity: "HIGH",
                 category: "ARM64 Pointer Truncation (companion struct field)",

@@ -20,6 +20,7 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 CODER_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 sys.path.insert(0, CODER_ROOT)
 from instrumentation.log_inspector import inspect_log_stream
+from core.compiler.clang_ast_extractor import extract_clang_ast_symbols
 
 
 def detect_default_repo():
@@ -66,7 +67,7 @@ class CoderBridgeHandler(SimpleHTTPRequestHandler):
         if self.path == "/api/health":
             self._send_json(200, {
                 "ok": True,
-                "version": "v22",
+                "version": "v24",
                 "coder_root": CODER_ROOT,
                 "default_repo": detect_default_repo(),
                 "has_rish": bool(shutil.which("rish")),
@@ -80,6 +81,20 @@ class CoderBridgeHandler(SimpleHTTPRequestHandler):
             body = self._read_json()
         except Exception as e:
             self._send_json(400, {"ok": False, "error": f"Invalid JSON: {e}"})
+            return
+
+        if self.path == "/api/ast":
+            repo = os.path.expanduser(body.get("repo") or detect_default_repo())
+            target_file = body.get("file", "")
+            extra_flags = body.get("flags", [])
+            if not repo or not os.path.isdir(repo) or not target_file:
+                self._send_json(400, {"ok": False, "error": "Missing valid repo or file."})
+                return
+            try:
+                ast_data = extract_clang_ast_symbols(repo, target_file, extra_flags)
+                self._send_json(200, {"ok": True, "ast": ast_data})
+            except Exception as e:
+                self._send_json(500, {"ok": False, "error": str(e)})
             return
 
         if self.path == "/api/diag":
@@ -171,7 +186,7 @@ class CoderBridgeHandler(SimpleHTTPRequestHandler):
 def main():
     port = int(os.environ.get("CODER_PORT", "8080"))
     server = ThreadingHTTPServer(("127.0.0.1", port), CoderBridgeHandler)
-    print(f"[*] Coder Local Bridge v22 listening on http://127.0.0.1:{port}")
+    print(f"[*] Coder Local Bridge v24 listening on http://127.0.0.1:{port}")
     print(f"[*] Serving workspace: {CODER_ROOT}")
     default_repo = detect_default_repo()
     if default_repo:
