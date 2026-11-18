@@ -271,6 +271,10 @@ class NeuroSymbolicEngine {
     }
 
     resetWorkspace() {
+        // Preserve ingested reference manuals across workspace mounts!
+        const preservedManualBoxes = Array.from(this.boxes.values()).filter(b => b.domain === "n64_manual" || b.type === "manual_section");
+        const preservedManualTethers = this.tethers.filter(t => t.sourceId.startsWith("manual:") || t.targetId.startsWith("manual:"));
+
         this.boxes.clear();
         this.tethers = [];
         this.tetherIndex.clear();
@@ -284,6 +288,13 @@ class NeuroSymbolicEngine {
         this.androidModel = this._createEmptyAndroidModel();
         this.totalDocs = 0;
         this._seedAndroidDocsIntoGraph();
+
+        for (const mBox of preservedManualBoxes) {
+            this.addBox(mBox);
+        }
+        for (const mTether of preservedManualTethers) {
+            this.addTether(mTether.sourceId, mTether.targetId, mTether.weight, mTether.relation);
+        }
     }
 
     registerNonTextAsset(path) {
@@ -1972,13 +1983,17 @@ class NeuroSymbolicEngine {
                 };
             } else {
                 const snippetLines = (targetBox.payload.snippet || "").split('\n');
+                const relatedManual = workspaceBoxes.find(b => b.type === "manual_section" && b.payload && b.payload.snippet);
+                const manualComment = relatedManual
+                    ? `// [N64 Manual Ref: ${relatedManual.payload.filePath}:${relatedManual.payload.line}] ${relatedManual.payload.name}`
+                    : `// [ARM64 Runtime Guard] Null, 16-byte alignment & MTE pointer tag check for ${targetBox.payload.name}`;
                 synthesizedDiff = {
                     filePath: targetBox.payload.filePath,
                     line: targetBox.payload.line,
                     symbolName: targetBox.payload.name,
                     contextBefore: snippetLines.slice(0, 3),
                     insertionLines: [
-                        `// [ARM64 Runtime Guard] Null, 16-byte alignment & MTE pointer tag check for ${targetBox.payload.name}`,
+                        manualComment,
                         `if (!__builtin_expect(ptr != NULL, 1)) { return; }`
                     ],
                     contextAfter: snippetLines.slice(3, 6)

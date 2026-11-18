@@ -17,7 +17,7 @@
                         Open Workspace <input type="file" id="folder-input" webkitdirectory directory multiple style="display: none;" onchange="handleFolderSelect(event)">
                     </label>
                     <label style="flex: 1; background: var(--accent-green); color: white; padding: 6px 8px; border-radius: 4px; font-size: 11px; text-align: center; cursor: pointer;" title="Ingest N64 manuals or SDK docs">
-                        Ingest Manuals <input type="file" id="manuals-input" multiple accept=".txt,.md,.h,.cpp,.java" style="display: none;" onchange="handleManualsIngest(event)">
+                        Ingest Manuals <input type="file" id="manuals-input" multiple accept="text/plain,text/markdown,text/*,.txt,.md,.h,.c,.cpp,.java" style="display: none;" onchange="handleManualsIngest(event)">
                     </label>
                 </div>
             </div>

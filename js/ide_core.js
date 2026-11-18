@@ -8,7 +8,9 @@ let chatHistory = [];
 function updateStatusBar() {
     const statusRight = document.getElementById('status-metrics');
     if (statusRight) {
-        statusRight.textContent = `Boxes: ${engine.boxes.size} | .so Targets: ${engine.androidModel.nativeTargets.length} | JNI: ${engine.androidModel.javaNativeMethods.length} | Findings: ${engine.auditFindings.length}`;
+        const manualCount = Array.from(engine.boxes.values()).filter(b => b.type === "manual_section").length;
+        const n64LexCount = Object.values(engine.lexicon.dictionary).filter(d => d.domain === "n64_manual").length;
+        statusRight.textContent = `Boxes: ${engine.boxes.size} | Manuals: ${manualCount} (${n64LexCount} terms) | .so: ${engine.androidModel.nativeTargets.length} | JNI: ${engine.androidModel.javaNativeMethods.length} | Findings: ${engine.auditFindings.length}`;
     }
 }
 
@@ -81,15 +83,26 @@ async function ingestFilesInBatches(fileArray, isManual = false) {
             }
             try {
                 const text = await item.file.text();
-                if (!isManual && text.length < 350000) {
+                if (!text || text.trim().length === 0) {
+                    if (isManual) appendAgentMessage(`<span style="color:#ff7b72;">[!] Manual file <code>${item.path}</code> was empty or unreadable (0 bytes).</span>`);
+                    return;
+                }
+                if (text.length < 350000) {
                     cachedFileTexts[item.path] = text;
+                }
+                if (isManual) {
+                    workspaceFiles[`manuals/${item.path}`] = item.file;
                 }
                 await engine.ingestDocument(item.path, text, isManual, (pct) => {
                     showProgress(`Ingesting ${item.path}: ${pct}%...`);
                     updateStatusBar();
                 });
             } catch (err) {
-                if (!isManual) engine.registerNonTextAsset(item.path);
+                if (isManual) {
+                    appendAgentMessage(`<span style="color:#ff7b72;">[!] Failed reading manual <code>${item.path}</code>: ${err.message}</span>`);
+                } else {
+                    engine.registerNonTextAsset(item.path);
+                }
             }
         }));
 
@@ -110,6 +123,11 @@ async function ingestFilesInBatches(fileArray, isManual = false) {
     if (isManual) {
         const manualBoxes = Array.from(engine.boxes.values()).filter(b => b.type === "manual_section").length;
         const n64Terms = Object.values(engine.lexicon.dictionary).filter(d => d.domain === "n64_manual").length;
+        const allTreePaths = Array.from(new Set([
+            ...Array.from(engine.fileSummaries.keys()),
+            ...Object.keys(workspaceFiles)
+        ])).sort();
+        if (allTreePaths.length > 0) buildAndRenderTreeFromPaths(allTreePaths);
         appendAgentMessage(
             `<strong>Reference Manual Learned & Cross-Linked:</strong><br>` +
             `• Indexed <strong>${manualBoxes}</strong> manual sections and learned <strong>${n64Terms}</strong> N64 SDK/hardware lexicon entries across <strong>${engine.tethers.length}</strong> total graph tethers.<br>` +
