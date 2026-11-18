@@ -1,4 +1,4 @@
-const CACHE_NAME = "coder-offline-v25";
+const CACHE_NAME = "coder-offline-v26";
 const CORE_ASSETS = [
     "./",
     "./index.html",
@@ -10,6 +10,7 @@ const CORE_ASSETS = [
     "./js/vision_runtime_analyzer.js",
     "./js/port_fixes.js",
     "./js/cross_file_truncation.js",
+    "./js/rom_analyzer.js",
     "./js/local_bridge.js"
 ];
 

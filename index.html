@@ -19,6 +19,9 @@
                     <label style="flex: 1; background: var(--accent-green); color: white; padding: 6px 8px; border-radius: 4px; font-size: 11px; text-align: center; cursor: pointer;" title="Ingest N64 manuals or SDK docs">
                         Ingest Manuals <input type="file" id="manuals-input" multiple accept="text/plain,text/markdown,text/*,.txt,.md,.h,.c,.cpp,.java" style="display: none;" onchange="handleManualsIngest(event)">
                     </label>
+                    <label style="flex: 1; background: #8957e5; color: white; padding: 6px 8px; border-radius: 4px; font-size: 11px; text-align: center; cursor: pointer;" title="Inspect any N64 ROM (.z64, .v64, .n64) and cross-reference assets">
+                        Load ROM <input type="file" id="rom-input" accept=".z64,.v64,.n64,.rom,.bin" style="display: none;" onchange="handleRomSelect(event)">
+                    </label>
                 </div>
             </div>
             <div id="progress-container" style="display: none; padding: 6px 12px; background: var(--bg-tertiary); font-size: 11px; border-bottom: 1px solid var(--border-color); color: var(--accent-blue);">
@@ -85,6 +88,7 @@
     <script src="js/ide_core.js"></script>
     <script src="js/port_fixes.js"></script>
     <script src="js/cross_file_truncation.js"></script>
+    <script src="js/rom_analyzer.js"></script>
     <script src="js/local_bridge.js"></script>
 </body>
 </html>

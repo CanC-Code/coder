@@ -67,7 +67,7 @@ class CoderBridgeHandler(SimpleHTTPRequestHandler):
         if self.path == "/api/health":
             self._send_json(200, {
                 "ok": True,
-                "version": "v24",
+                "version": "v26",
                 "coder_root": CODER_ROOT,
                 "default_repo": detect_default_repo(),
                 "has_rish": bool(shutil.which("rish")),
@@ -163,6 +163,30 @@ class CoderBridgeHandler(SimpleHTTPRequestHandler):
                 self._send_json(500, {"ok": False, "error": str(e)})
             return
 
+        if self.path == "/api/extract_rom":
+            repo = os.path.expanduser(body.get("repo") or detect_default_repo())
+            ver = str(body.get("version") or "").strip()
+            if not repo or not os.path.isdir(repo):
+                self._send_json(400, {"ok": False, "error": f"Repo directory not found: {repo}"})
+                return
+            extract_sh = os.path.join(repo, "extract.sh")
+            if not os.path.isfile(extract_sh):
+                self._send_json(400, {"ok": False, "error": f"No extract.sh found in {repo}"})
+                return
+            cmd = ["bash", extract_sh] + ([ver] if ver else [])
+            try:
+                proc = subprocess.run(cmd, cwd=repo, capture_output=True, text=True, timeout=180)
+                out = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
+                self._send_json(200 if proc.returncode == 0 else 500, {
+                    "ok": proc.returncode == 0,
+                    "returncode": proc.returncode,
+                    "output": out.strip()[-8000:],
+                    "error": None if proc.returncode == 0 else f"extract.sh exited with code {proc.returncode}"
+                })
+            except Exception as e:
+                self._send_json(500, {"ok": False, "error": str(e)})
+            return
+
         if self.path == "/api/apply_patch":
             repo = os.path.expanduser(body.get("repo") or detect_default_repo())
             rel_path = body.get("filePath", "")
@@ -186,7 +210,7 @@ class CoderBridgeHandler(SimpleHTTPRequestHandler):
 def main():
     port = int(os.environ.get("CODER_PORT", "8080"))
     server = ThreadingHTTPServer(("127.0.0.1", port), CoderBridgeHandler)
-    print(f"[*] Coder Local Bridge v24 listening on http://127.0.0.1:{port}")
+    print(f"[*] Coder Local Bridge v26 listening on http://127.0.0.1:{port}")
     print(f"[*] Serving workspace: {CODER_ROOT}")
     default_repo = detect_default_repo()
     if default_repo:
