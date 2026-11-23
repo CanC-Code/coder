@@ -242,6 +242,40 @@
     }
 
     lines.push("", "--- 2. COMPLETE UNIFIED DIFFS ---", "");
+    if (!paths.length && Array.isArray(findings) && findings.length) {
+      const byFile = new Map();
+      for (const f of findings) {
+        if (!f || !f.filePath || !f.replaceLine || typeof f.fixSuggestion !== "string" || !f.fixSuggestion.trim()) continue;
+        if (!byFile.has(f.filePath)) byFile.set(f.filePath, []);
+        byFile.get(f.filePath).push(f);
+      }
+      for (const [fp, items] of byFile.entries()) {
+        const baseText = (typeof cachedFileTexts !== "undefined" && cachedFileTexts[fp]) || "";
+        const baseLines = baseText ? baseText.split("\n") : [];
+        const nextLines = baseLines.slice();
+        for (const it of items) {
+          const idx = (Number(it.line) || 1) - 1;
+          if (idx >= 0 && idx < nextLines.length) {
+            const indent = (nextLines[idx].match(/^\s*/) || [""])[0];
+            nextLines[idx] = indent + it.fixSuggestion.trim();
+          }
+        }
+        lines.push(`# PROPOSED FIX PREVIEW (target repo not modified): ${fp}`);
+        lines.push(`diff --git a/${fp} b/${fp}`);
+        lines.push(`--- a/${fp}`);
+        lines.push(`+++ b/${fp}`);
+        if (typeof buildContextUnifiedHunks === "function" && baseLines.length) {
+          lines.push(...buildContextUnifiedHunks(baseLines, nextLines, 2));
+        } else {
+          for (const it of items) {
+            lines.push(`@@ -${it.line || 1},1 +${it.line || 1},1 @@`);
+            lines.push(`-${it.code || ""}`);
+            lines.push(`+${it.fixSuggestion.trim()}`);
+          }
+        }
+        lines.push("");
+      }
+    }
     for (const p of paths) {
       const origLines = ((typeof cachedFileTexts !== "undefined" && cachedFileTexts[p]) || "").split("\n");
       const newLines = (patchedContents[p] || "").split("\n");

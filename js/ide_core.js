@@ -900,7 +900,7 @@ window.clearWorkspace = clearWorkspace;
           f.port17 = true;
           const info = analyzeTruncation(this, f, lines);
           const dead = info.guards.find(g => g.known && !g.active);
-          const tamper = info.antiTamper ? " This looks like an integrity/anti-tamper check: recompiled aarch64 code can never match the original checksum, so prefer disabling it (e.g. #if defined(ANTI_TAMPER) && !defined(__aarch64__)) over widening types." : "";
+          const tamper = info.antiTamper ? " This looks like an integrity/anti-tamper or ROM checksum check: recompiled aarch64 code can never match the original N64 checksum, so guard/disable it on __aarch64__ (e.g. #ifndef __aarch64__) rather than widening checksum values." : "";
           if (dead) {
             f.severity = "LOW"; f.advisory = true;
             f.reason = "Inside '" + dead.cond + "' but " + dead.name + " is not defined in any scanned source or build file, so this is probably not compiled for Android. Confirm with a clang diagnostic." + tamper;
