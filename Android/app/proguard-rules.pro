@@ -1,6 +1,7 @@
-# --- Neuro-Symbolic Coder ProGuard Rules for Diddy Kong Racing ---
+# --- Neuro-Symbolic Coder ProGuard Rules for Native Android Port ---
 # Protect native JNI bridge classes and methods from R8 stripping/obfuscation
--keep class com.dkrwrapper.** { *; }
+-keep class **NativeBridge { *; }
+-keep class **.MainActivity { *; }
 
 -keepclasseswithmembernames class * {
     native <methods>;

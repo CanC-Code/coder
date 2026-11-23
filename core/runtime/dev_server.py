@@ -23,6 +23,43 @@ from instrumentation.log_inspector import inspect_log_stream
 from core.compiler.clang_ast_extractor import extract_clang_ast_symbols
 
 
+def _infer_repo_package_and_lib(repo_dir):
+    pkg = ""
+    lib_base = ""
+    if repo_dir and os.path.isdir(repo_dir):
+        for root, dirs, files in os.walk(repo_dir):
+            dirs[:] = [d for d in dirs if d not in (".git", "build", ".gradle", ".coder", "node_modules")]
+            for fn in files:
+                fp = os.path.join(root, fn)
+                if fn == "AndroidManifest.xml":
+                    try:
+                        txt = open(fp, "r", encoding="utf-8", errors="ignore").read()
+                        import re as _r
+                        m = _r.search(r'\bpackage\s*=\s*"([a-zA-Z0-9_.]+)"', txt)
+                        if m:
+                            pkg = m.group(1)
+                    except Exception:
+                        pass
+                elif fn in ("CMakeLists.txt",) and not lib_base:
+                    try:
+                        txt = open(fp, "r", encoding="utf-8", errors="ignore").read()
+                        import re as _r
+                        m = _r.search(r'\badd_library\s*\(\s*([A-Za-z0-9_]+)\s+SHARED', txt)
+                        if m:
+                            lib_base = m.group(1)
+                    except Exception:
+                        pass
+                elif fn.startswith("lib") and fn.endswith(".so") and not lib_base:
+                    lib_base = fn[:-3]
+            if pkg and lib_base:
+                break
+    if not pkg and lib_base:
+        pkg = f"com.{lib_base}"
+    if not lib_base and pkg:
+        lib_base = pkg.split(".")[-1]
+    return pkg, lib_base
+
+
 def detect_default_repo():
     """Return ONLY an explicitly designated repo. Never scan $HOME."""
     env_repo = os.environ.get("CODER_REPO", "").strip()
@@ -152,7 +189,9 @@ class CoderBridgeHandler(SimpleHTTPRequestHandler):
 
         if self.path == "/api/logcat":
             lines = int(body.get("lines", 400))
-            pkg = body.get("package", "com.dkrwrapper")
+            req_repo = os.path.expanduser(body.get("repo") or detect_default_repo())
+            inferred_pkg, inferred_lib = _infer_repo_package_and_lib(req_repo)
+            pkg = (body.get("package") or inferred_pkg or "").strip()
             if shutil.which("rish"):
                 cmd = ["rish", "-c", f"logcat -d -t {lines}"]
             elif shutil.which("logcat"):
@@ -175,9 +214,10 @@ class CoderBridgeHandler(SimpleHTTPRequestHandler):
                 finally:
                     os.unlink(tmp_path)
 
+                _filters = [x for x in (pkg, f"lib{inferred_lib}" if inferred_lib else "", "DEBUG", "SIGSEGV", "SIGBUS", "SEGVDUMP", "libc", "backtrace:", "#0") if x]
                 filtered = "\n".join(
                     ln for ln in raw_log.splitlines()
-                    if any(k in ln for k in (pkg, "DEBUG", "SIGSEGV", "SIGBUS", "SEGVDUMP", "BKA-", "libc", "libdkrwrapper", "backtrace:", "#0"))
+                    if any(k in ln for k in _filters)
                 )[-12000:]
                 self._send_json(200, {
                     "ok": True,
@@ -262,7 +302,9 @@ class CoderBridgeHandler(SimpleHTTPRequestHandler):
                         break
 
             try:
-                proc = subprocess.run(cmd, cwd=repo, capture_output=True, text=True, timeout=60)
+                _env = os.environ.copy()
+                _env["PYTHONPATH"] = CODER_ROOT + os.pathsep + _env.get("PYTHONPATH", "")
+                proc = subprocess.run(cmd, cwd=repo, capture_output=True, text=True, timeout=60, env=_env)
                 out = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
                 self._send_json(200, {
                     "ok": proc.returncode == 0,

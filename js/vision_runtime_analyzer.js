@@ -264,7 +264,7 @@ class CoderVisionAndRuntimeAnalyzer {
             }
         }
 
-        const jniMissingMatch = logText.match(/No implementation found for .* (Java_[a-zA-Z0-9_]+|com\.dkrwrapper\.[a-zA-Z0-9_.]+)/);
+        const jniMissingMatch = logText.match(/No implementation found for .* (Java_[a-zA-Z0-9_]+|[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+){1,}\.[a-zA-Z0-9_]+)/);
 
         let html = `<strong>Runtime Crash & Log Context Diagnosis:</strong><br>`;
         if (faultAddr) {

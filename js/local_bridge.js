@@ -26,6 +26,39 @@
     }
   }
 
+  function inferTargetPackage() {
+    try {
+      const rawBp = localStorage.getItem("coder_android_port_blueprint_v2");
+      if (rawBp) {
+        const bp = JSON.parse(rawBp);
+        if (bp && bp.learnedFrom) return String(bp.learnedFrom).trim();
+        if (bp && bp.learnedPatterns) {
+          const first = Object.values(bp.learnedPatterns).find(v => v && v.packageName);
+          if (first && first.packageName) return String(first.packageName).trim();
+        }
+      }
+    } catch (_) {}
+    if (typeof cachedFileTexts !== "undefined" && cachedFileTexts) {
+      for (const [p, txt] of Object.entries(cachedFileTexts)) {
+        if (typeof txt !== "string") continue;
+        if (/AndroidManifest\.xml$/i.test(p)) {
+          const m = txt.match(/\bpackage\s*=\s*"([a-zA-Z0-9_.]+)"/);
+          if (m) return m[1];
+        }
+        if (/build\.gradle(?:\.kts)?$/i.test(p)) {
+          const m = txt.match(/\b(?:namespace|applicationId)\s*[= ]\s*["']([a-zA-Z0-9_.]+)["']/);
+          if (m) return m[1];
+        }
+      }
+    }
+    const repo = getRepoPath();
+    if (repo) {
+      const slug = repo.split("/").filter(Boolean).pop().toLowerCase().replace(/[^a-z0-9]+/g, "");
+      if (slug) return `com.${slug}wrapper`;
+    }
+    return "";
+  }
+
   function getRepoPath() {
     return (localStorage.getItem("coder_target_repo") || "").trim();
   }
@@ -86,7 +119,7 @@
       const resp = await fetch("/api/logcat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lines: 500, package: "com.dkrwrapper" })
+        body: JSON.stringify({ lines: 500, package: inferTargetPackage() })
       });
       const data = await resp.json();
       if (!data.ok) {

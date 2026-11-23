@@ -1224,6 +1224,12 @@ class NeuroSymbolicEngine {
                 }
 
                 if (t.includes("registerReceiver(") && !fullText.includes("RECEIVER_EXPORTED") && !fullText.includes("RECEIVER_NOT_EXPORTED")) {
+                    const ctxMatch = t.match(/([A-Za-z0-9_.$]+)\s*\.\s*registerReceiver\s*\(([^;]+)\)\s*;?/);
+                    const ctxExpr = ctxMatch ? ctxMatch[1] : "this";
+                    const argParts = ctxMatch ? ctxMatch[2].split(",").map(s => s.trim()).filter(Boolean) : [];
+                    const rcvExpr = argParts[0] || "receiver";
+                    const fltExpr = argParts[1] || "filter";
+                    const extraArgs = argParts.length > 2 ? ", " + argParts.slice(2).join(", ") : "";
                     this.auditFindings.push({
                         severity: "CRITICAL",
                         category: "Android 14+ Missing RECEIVER_EXPORTED / NOT_EXPORTED Flag",
@@ -1231,7 +1237,7 @@ class NeuroSymbolicEngine {
                         line: i + 1,
                         code: t,
                         reason: "Dynamic Context.registerReceiver() on targetSdk 34+ throws SecurityException unless Context.RECEIVER_EXPORTED or Context.RECEIVER_NOT_EXPORTED is specified.",
-                        fixSuggestion: `ContextCompat.registerReceiver(this, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);`
+                        fixSuggestion: `ContextCompat.registerReceiver(${ctxExpr}, ${rcvExpr}, ${fltExpr}${extraArgs}, ContextCompat.RECEIVER_NOT_EXPORTED);`
                     });
                 }
 
@@ -1773,11 +1779,14 @@ ${stub.decompImpl.snippet}`
         const primaryCppDir = stubFiles[0].includes("/cpp/")
             ? stubFiles[0].slice(0, stubFiles[0].indexOf("/cpp/") + 4)
             : stubFiles[0].split('/').slice(0, -1).join('/');
-        const unifiedPath = `${primaryCppDir}/dkr_unified_stubs.cpp`;
+        const repoSlugMatch = (stubFiles[0] || "").split("/").find(seg => seg && !["android", "app", "src", "main", "cpp", "ultra"].includes(seg.toLowerCase()));
+        const stubPrefix = repoSlugMatch ? repoSlugMatch.toLowerCase().replace(/[^a-z0-9]+/g, "_") : "unified";
+        const unifiedName = `${stubPrefix}_unified_stubs.cpp`;
+        const unifiedPath = `${primaryCppDir}/${unifiedName}`;
 
         const seenSymbols = new Set();
         const unifiedBlocks = [
-            `// Auto-Unified Android N64/DKR Stubs (Consolidated from ${stubFiles.length} translation units)`,
+            `// Auto-Unified Android Native Stubs (${stubPrefix}) — Consolidated from ${stubFiles.length} translation units`,
             `#include <stdint.h>`,
             `#include <stddef.h>`,
             `#include <android/log.h>`,
@@ -1867,7 +1876,7 @@ ${stub.decompImpl.snippet}`
             const bText = getFileText(buildPath);
             if (!bText) continue;
             const buildDir = buildPath.includes('/') ? buildPath.slice(0, buildPath.lastIndexOf('/')) : '';
-            const relUnified = buildDir && unifiedPath.startsWith(`${buildDir}/`) ? unifiedPath.slice(buildDir.length + 1) : "dkr_unified_stubs.cpp";
+            const relUnified = buildDir && unifiedPath.startsWith(`${buildDir}/`) ? unifiedPath.slice(buildDir.length + 1) : unifiedName;
             let modified = false;
             let addedUnified = false;
             const nextLines = [];

@@ -22,7 +22,7 @@ class PatchExporter:
         bundle_content = f"""=== NEURO-SYMBOLIC CODER PATCH REVIEW BUNDLE ===
 Generated: {datetime.datetime.now().isoformat()}
 Workspace: {self.workspace_root}
-Target: Diddy Kong Racing Android Port (aarch64)
+Target: {os.path.basename(os.path.abspath(self.workspace_root)) or "Workspace"} (Android aarch64)
 ===================================================
 
 [SUMMARY]
